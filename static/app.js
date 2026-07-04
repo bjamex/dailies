@@ -13,15 +13,32 @@ const api = {
   deleteTask:     (id) => fetch(`/api/tasks/${id}`, { method: 'DELETE' }),
   completeTask:   (id) => fetch(`/api/tasks/${id}/complete`, { method: 'POST' }),
   uncompleteTask: (id) => fetch(`/api/tasks/${id}/complete`, { method: 'DELETE' }),
+  logTask:        (id, value) => fetch(`/api/tasks/${id}/log`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value }),
+  }).then(r => r.json()),
   getHistory:     (id, days = 91) => fetch(`/api/tasks/${id}/history?days=${days}`).then(r => r.json()),
 
   getSummary:  () => fetch('/api/summary').then(r => r.json()),
   getStats:    () => fetch('/api/stats').then(r => r.json()),
 
+  listJournal: () => fetch('/api/journal').then(r => r.json()),
   getJournal:  (date) => fetch(`/api/journal/${date}`).then(r => r.json()),
   saveJournal: (date, content) => fetch(`/api/journal/${date}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),
+  }),
+
+  reorderTasks:    (order) => fetch('/api/tasks/reorder', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order }),
+  }),
+
+  getQuote:        () => fetch('/api/quote').then(r => r.json()),
+  getSettings:     () => fetch('/api/settings').then(r => r.json()),
+  saveSettings:    (patch) => fetch('/api/settings', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
   }),
 
   getReminders:    () => fetch('/api/reminders').then(r => r.json()),
@@ -66,7 +83,7 @@ const GROUP_LABELS = { morning: 'Morning', afternoon: 'Afternoon', null: 'Anytim
 async function loadOverview() {
   const el = document.getElementById('overview-content');
   el.innerHTML = '<p class="empty-state">Loading…</p>';
-  const s = await api.getSummary();
+  const [s, settings, { quote }] = await Promise.all([api.getSummary(), api.getSettings(), api.getQuote()]);
 
   const pct = (done, total) => total ? Math.round((done / total) * 100) : 0;
 
@@ -114,6 +131,7 @@ async function loadOverview() {
     <div class="overview-header">
       <div class="overview-date">${esc(s.date)}</div>
       <div class="overview-week">${esc(s.week)}</div>
+      ${quote ? `<div class="overview-quote">${esc(quote)}</div>` : ''}
     </div>
 
     ${progressRows ? `<div class="overview-section"><div class="overview-label">Progress</div>${progressRows}</div>` : ''}
@@ -129,6 +147,25 @@ async function loadOverview() {
     ${streakHtml ? `<div class="overview-section"><div class="overview-label">Streaks</div>${streakHtml}</div>` : ''}
 
     ${remindersHtml ? `<div class="overview-section"><div class="overview-label">Reminders</div><div class="overview-reminders">${remindersHtml}</div></div>` : ''}
+
+    <div class="overview-section">
+      <button class="weekly-review-btn" id="weekly-review-btn">📋 Weekly Review — ${esc(s.week)}</button>
+    </div>
+
+    <details class="settings-section">
+      <summary class="settings-toggle">Settings</summary>
+      <div class="settings-body">
+        <label class="settings-row">
+          <span>Day resets at</span>
+          <select id="reset-hour-select">
+            ${Array.from({length: 24}, (_, i) => {
+              const label = i === 0 ? 'Midnight (default)' : `${String(i).padStart(2,'0')}:00`;
+              return `<option value="${i}" ${settings.resetHour === i ? 'selected' : ''}>${label}</option>`;
+            }).join('')}
+          </select>
+        </label>
+      </div>
+    </details>
   `;
 
   // Journal auto-save
@@ -146,6 +183,13 @@ async function loadOverview() {
       api.saveJournal(s.today, ta.value);
     });
   }
+
+  // Settings
+  document.getElementById('reset-hour-select')?.addEventListener('change', async (e) => {
+    await api.saveSettings({ resetHour: Number(e.target.value) });
+    loaded.delete('daily'); loaded.delete('weekly'); loaded.delete('monthly');
+    loadOverview();
+  });
 
   // Checkable todo items
   document.getElementById('overview-todo')?.addEventListener('click', async (e) => {
@@ -166,17 +210,122 @@ async function loadOverview() {
 
 function makeTaskItem(task) {
   const li = document.createElement('li');
-  li.className = `task-item${task.completed ? ' done' : ''}${task.paused ? ' paused' : ''}`;
+  li.className = `task-item${task.completed ? ' done' : ''}${task.paused ? ' paused' : ''}${task.notes ? ' has-notes' : ''}`;
   li.dataset.id = task.id;
   li.tabIndex = -1;
+  li.draggable = true;
+
+  const noteIndicator = task.notes ? '<span class="note-dot" title="Has note">·</span>' : '';
+  const isCount = task.kind === 'count';
+  const countHtml = isCount ? `
+    <span class="count-control">
+      <button class="count-btn" data-action="count-dec" ${task.paused ? 'disabled' : ''}>−</button>
+      <span class="count-val">${task.value ?? 0}${task.target ? `<span class="count-target">/${task.target}</span>` : ''}</span>
+      <button class="count-btn" data-action="count-inc" ${task.paused ? 'disabled' : ''}>+</button>
+    </span>` : '';
+
   li.innerHTML = `
-    <input type="checkbox" ${task.completed ? 'checked' : ''} ${task.paused ? 'disabled' : ''} aria-label="${esc(task.title)}">
-    <span class="task-label">${esc(task.title)}</span>
+    <span class="drag-handle" aria-hidden="true">⠿</span>
+    ${isCount ? '' : `<input type="checkbox" ${task.completed ? 'checked' : ''} ${task.paused ? 'disabled' : ''} aria-label="${esc(task.title)}">`}
+    <span class="task-label-wrap">
+      <span class="task-label">${esc(task.title)}</span>${noteIndicator}
+    </span>
     ${task.streak ? streakBadge(task.streak, task.streak_goal) : ''}
+    ${countHtml}
     <button class="pause-btn" title="${task.paused ? 'Resume' : 'Pause'}" data-action="pause">${task.paused ? '▶' : '⏸'}</button>
     <button class="delete-btn" title="Delete" data-action="delete">✕</button>
   `;
+
+  if (isCount) {
+    li.dataset.value = task.value ?? 0;
+    li.dataset.target = task.target ?? '';
+  }
+
+  // Notes panel (hidden by default)
+  const notesPanel = document.createElement('div');
+  notesPanel.className = 'task-notes-panel';
+  notesPanel.hidden = true;
+  const ta = document.createElement('textarea');
+  ta.className = 'task-notes-ta';
+  ta.placeholder = 'Add a note…';
+  ta.value = task.notes || '';
+  ta.rows = 2;
+  let notesTimer;
+  ta.addEventListener('input', () => {
+    autoResize(ta);
+    clearTimeout(notesTimer);
+    notesTimer = setTimeout(() => {
+      api.updateTask(task.id, { notes: ta.value });
+      const dot = li.querySelector('.note-dot');
+      const wrap = li.querySelector('.task-label-wrap');
+      if (ta.value && !dot) {
+        const d = document.createElement('span');
+        d.className = 'note-dot';
+        d.title = 'Has note';
+        d.textContent = '·';
+        wrap.appendChild(d);
+      } else if (!ta.value && dot) {
+        dot.remove();
+      }
+    }, 600);
+  });
+  ta.addEventListener('blur', () => {
+    clearTimeout(notesTimer);
+    api.updateTask(task.id, { notes: ta.value });
+  });
+  notesPanel.appendChild(ta);
+  li.appendChild(notesPanel);
+
+  // Toggle notes on label click
+  li.querySelector('.task-label-wrap').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = !notesPanel.hidden;
+    notesPanel.hidden = open;
+    li.classList.toggle('notes-open', !open);
+    if (!open) { autoResize(ta); ta.focus(); }
+  });
+
   return li;
+}
+
+function initDrag(ul) {
+  let dragSrc = null;
+
+  ul.addEventListener('dragstart', (e) => {
+    const li = e.target.closest('.task-item');
+    if (!li) return;
+    dragSrc = li;
+    li.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  ul.addEventListener('dragend', () => {
+    dragSrc?.classList.remove('dragging');
+    ul.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    dragSrc = null;
+  });
+
+  ul.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    const li = e.target.closest('.task-item');
+    if (!li || li === dragSrc) return;
+    ul.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    li.classList.add('drag-over');
+    // Insert before or after based on mouse position
+    const rect = li.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    if (e.clientY < mid) ul.insertBefore(dragSrc, li);
+    else li.after(dragSrc);
+  });
+
+  ul.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    ul.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    const items = [...ul.querySelectorAll('.task-item')];
+    const order = items.map((li, i) => ({ id: Number(li.dataset.id), position: i }));
+    await api.reorderTasks(order);
+    refreshOverview();
+  });
 }
 
 function renderGroupedTasks(tasks, container) {
@@ -206,6 +355,7 @@ function renderGroupedTasks(tasks, container) {
     ul.className = 'task-list';
     list.forEach(t => ul.appendChild(makeTaskItem(t)));
     container.appendChild(ul);
+    initDrag(ul);
   }
 }
 
@@ -216,6 +366,7 @@ function renderFlatTasks(tasks, listEl) {
     return;
   }
   tasks.forEach(t => listEl.appendChild(makeTaskItem(t)));
+  initDrag(listEl);
 }
 
 async function loadTasks(type) {
@@ -344,10 +495,47 @@ async function loadStats() {
     </div>
 
     <div class="stats-section">
-      <div class="stats-label">Export</div>
-      <a class="export-btn" href="/api/export.csv" download="dailies-export.csv">⬇ Download CSV</a>
+      <div class="stats-label">Export / Import</div>
+      <div class="import-export-row">
+        <a class="export-btn" href="/api/export.csv" download="dailies-export.csv">⬇ Download CSV</a>
+        <label class="export-btn import-label">
+          ⬆ Import CSV
+          <input type="file" accept=".csv,text/csv" id="import-file-input" style="display:none">
+        </label>
+      </div>
+      <div id="import-status" class="import-status"></div>
     </div>
   `;
+
+  // Import CSV
+  document.getElementById('import-file-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const statusEl = document.getElementById('import-status');
+    statusEl.textContent = 'Importing…';
+    statusEl.className = 'import-status';
+    const text = await file.text();
+    try {
+      const result = await fetch('/api/import.csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/csv' },
+        body: text,
+      }).then(r => r.json());
+      if (result.ok) {
+        statusEl.textContent = `✓ Imported ${result.imported} completion${result.imported !== 1 ? 's' : ''}`;
+        statusEl.className = 'import-status success';
+        loaded.delete('stats');
+        setTimeout(() => loadStats(), 800);
+      } else {
+        statusEl.textContent = `Error: ${result.error}`;
+        statusEl.className = 'import-status error';
+      }
+    } catch {
+      statusEl.textContent = 'Import failed';
+      statusEl.className = 'import-status error';
+    }
+    e.target.value = '';
+  });
 
   // Expand/collapse calendar on click
   el.querySelectorAll('.habit-row-header').forEach(header => {
@@ -372,6 +560,82 @@ async function loadStats() {
   });
 }
 
+// ── Journal browser ───────────────────────────────────────────────────────
+
+async function loadJournalBrowser() {
+  const el = document.getElementById('journal-content');
+  el.innerHTML = '<p class="empty-state">Loading…</p>';
+  const entries = await api.listJournal();
+
+  if (!entries.length) {
+    el.innerHTML = '<p class="empty-state">No journal entries yet. Write one on the Overview tab.</p>';
+    return;
+  }
+
+  // Group by month
+  const byMonth = {};
+  for (const e of entries) {
+    const month = e.date.substring(0, 7);
+    (byMonth[month] = byMonth[month] || []).push(e);
+  }
+
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  el.innerHTML = Object.keys(byMonth).sort((a, b) => b.localeCompare(a)).map(month => {
+    const [y, m] = month.split('-');
+    const label = `${MONTH_NAMES[Number(m) - 1]} ${y}`;
+    const rows = byMonth[month].map(e => {
+      const isReview = e.date.includes('-review');
+      const display = isReview ? `${e.date.replace('-review', '')} — Weekly Review` : e.date;
+      return `<div class="journal-entry-row" data-date="${e.date}">
+        <div class="journal-entry-header">
+          <span class="journal-entry-date">${display}</span>
+          <span class="journal-entry-chevron">›</span>
+        </div>
+        <div class="journal-entry-body" hidden></div>
+      </div>`;
+    }).join('');
+    return `<div class="journal-month">
+      <div class="journal-month-label">${label}</div>
+      ${rows}
+    </div>`;
+  }).join('');
+
+  el.addEventListener('click', async (e) => {
+    const header = e.target.closest('.journal-entry-header');
+    if (!header) return;
+    const row = header.closest('.journal-entry-row');
+    const body = row.querySelector('.journal-entry-body');
+    const chevron = row.querySelector('.journal-entry-chevron');
+    const isOpen = !body.hidden;
+    if (isOpen) {
+      body.hidden = true;
+      chevron.style.transform = '';
+      return;
+    }
+    chevron.style.transform = 'rotate(90deg)';
+    body.hidden = false;
+    if (!body.dataset.loaded) {
+      body.innerHTML = '<p class="empty-state" style="padding:.5rem 0">Loading…</p>';
+      const { content } = await api.getJournal(row.dataset.date);
+      const isReview = row.dataset.date.includes('-review');
+      if (isReview) {
+        const [well, hard, next] = (content || '').split('\n---\n');
+        body.innerHTML = [
+          well ? `<div class="journal-review-section"><div class="journal-review-q">What went well</div><p>${esc(well)}</p></div>` : '',
+          hard ? `<div class="journal-review-section"><div class="journal-review-q">Challenges</div><p>${esc(hard)}</p></div>` : '',
+          next ? `<div class="journal-review-section"><div class="journal-review-q">Focus next week</div><p>${esc(next)}</p></div>` : '',
+        ].join('') || '<p class="empty-state">Empty review.</p>';
+      } else {
+        body.innerHTML = content
+          ? `<p class="journal-entry-text">${esc(content).replace(/\n/g, '<br>')}</p>`
+          : '<p class="empty-state">Empty entry.</p>';
+      }
+      body.dataset.loaded = '1';
+    }
+  });
+}
+
 // ── Tab switching ─────────────────────────────────────────────────────────
 
 const tabs   = document.querySelectorAll('.tab');
@@ -393,6 +657,7 @@ function switchTab(name) {
     else if (name === 'weekly')    loadTasks('weekly');
     else if (name === 'monthly')   loadTasks('monthly');
     else if (name === 'stats')     loadStats();
+    else if (name === 'journal')   loadJournalBrowser();
     else if (name === 'reminders') loadReminders();
   }
 }
@@ -424,6 +689,18 @@ function taskListHandler(type) {
         li.classList.toggle('done', !checked);
       }
 
+    } else if (action === 'count-inc' || action === 'count-dec') {
+      const delta = action === 'count-inc' ? 1 : -1;
+      const cur = Number(li.dataset.value ?? 0);
+      const next = Math.max(0, cur + delta);
+      li.dataset.value = next;
+      const target = li.dataset.target ? Number(li.dataset.target) : null;
+      const valEl = li.querySelector('.count-val');
+      if (valEl) valEl.innerHTML = `${next}${target ? `<span class="count-target">/${target}</span>` : ''}`;
+      li.classList.toggle('done', target ? next >= target : next > 0);
+      await api.logTask(id, next);
+      refreshOverview();
+
     } else if (action === 'pause') {
       const paused = !li.classList.contains('paused');
       await api.updateTask(id, { paused });
@@ -454,24 +731,36 @@ document.getElementById('reminder-list').addEventListener('click', async (e) => 
 
 // ── Add forms ─────────────────────────────────────────────────────────────
 
-function addFormHandler(type, inputId, formId, groupSelectId) {
+function addFormHandler(type, inputId, formId, groupSelectId, kindSelectId, targetInputId) {
   document.getElementById(formId).addEventListener('submit', async (e) => {
     e.preventDefault();
     const input = document.getElementById(inputId);
     const title = input.value.trim();
     if (!title) return;
     const group = groupSelectId ? document.getElementById(groupSelectId).value || null : null;
+    const kind = kindSelectId ? document.getElementById(kindSelectId).value : 'check';
+    const target = targetInputId ? Number(document.getElementById(targetInputId).value) || null : null;
     input.value = '';
-    await api.createTask(type, title, group);
+    if (targetInputId) document.getElementById(targetInputId).value = '';
+    await fetch('/api/tasks', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, title, group: group || null, kind, target }),
+    });
     loadTasks(type);
     refreshOverview();
     if (loaded.has('stats')) { loaded.delete('stats'); }
   });
 }
 
-addFormHandler('daily',   'daily-input',   'daily-add-form',   'daily-group-select');
-addFormHandler('weekly',  'weekly-input',  'weekly-add-form',  null);
-addFormHandler('monthly', 'monthly-input', 'monthly-add-form', null);
+addFormHandler('daily',   'daily-input',   'daily-add-form',   'daily-group-select', 'daily-kind-select', 'daily-target-input');
+addFormHandler('weekly',  'weekly-input',  'weekly-add-form',  null, null, null);
+addFormHandler('monthly', 'monthly-input', 'monthly-add-form', null, null, null);
+
+// Show/hide target input based on kind
+document.getElementById('daily-kind-select')?.addEventListener('change', (e) => {
+  const ti = document.getElementById('daily-target-input');
+  if (ti) ti.style.display = e.target.value === 'count' ? '' : 'none';
+});
 
 document.getElementById('reminder-add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -521,7 +810,7 @@ function focusAddInput() {
   input?.focus();
 }
 
-const TAB_KEYS = { o: 'overview', d: 'daily', w: 'weekly', m: 'monthly', s: 'stats', r: 'reminders' };
+const TAB_KEYS = { o: 'overview', d: 'daily', w: 'weekly', m: 'monthly', s: 'stats', j: 'journal', r: 'reminders' };
 
 document.addEventListener('keydown', (e) => {
   const tag = document.activeElement?.tagName;
@@ -560,6 +849,79 @@ function closeKbModal() { kbModal.hidden = true;  kbHelpBtn.focus(); }
 kbHelpBtn.addEventListener('click', toggleKbModal);
 kbClose.addEventListener('click', closeKbModal);
 kbModal.addEventListener('click', (e) => { if (e.target === kbModal) closeKbModal(); });
+
+// ── Weekly review modal ───────────────────────────────────────────────────
+
+const reviewModal = document.getElementById('review-modal');
+let reviewKey = '';
+
+async function openReviewModal(weekLabel, weekKey) {
+  reviewKey = `${weekKey}-review`;
+  document.getElementById('review-week-label').textContent = weekLabel;
+  const entry = await api.getJournal(reviewKey);
+  const content = entry.content || '';
+  const parts = content.split('\n---\n');
+  document.getElementById('review-well').value = parts[0] || '';
+  document.getElementById('review-hard').value = parts[1] || '';
+  document.getElementById('review-next').value = parts[2] || '';
+  reviewModal.hidden = false;
+  document.getElementById('review-well').focus();
+}
+
+function closeReviewModal() {
+  reviewModal.hidden = true;
+}
+
+document.getElementById('review-save-btn').addEventListener('click', async () => {
+  const well = document.getElementById('review-well').value;
+  const hard = document.getElementById('review-hard').value;
+  const next = document.getElementById('review-next').value;
+  await api.saveJournal(reviewKey, [well, hard, next].join('\n---\n'));
+  closeReviewModal();
+});
+
+document.getElementById('review-cancel-btn').addEventListener('click', closeReviewModal);
+reviewModal.addEventListener('click', (e) => { if (e.target === reviewModal) closeReviewModal(); });
+
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'weekly-review-btn') {
+    const label = e.target.textContent.replace('📋 Weekly Review — ', '');
+    const weekKey = e.target.closest('[data-week]')?.dataset.week
+      || document.querySelector('[data-week]')?.dataset.week
+      || (() => {
+        const d = new Date();
+        const day = d.getDay() || 7;
+        d.setDate(d.getDate() + 4 - day);
+        const ys = new Date(d.getFullYear(), 0, 1);
+        const w = Math.ceil(((d - ys) / 86400000 + 1) / 7);
+        return `${d.getFullYear()}-W${String(w).padStart(2,'0')}`;
+      })();
+    openReviewModal(label, weekKey);
+  }
+});
+
+// ── Theme toggle ─────────────────────────────────────────────────────────
+
+(function initTheme() {
+  const btn = document.getElementById('theme-btn');
+  const apply = (light) => {
+    document.body.classList.toggle('light', light);
+    btn.textContent = light ? '🌙' : '☀️';
+    btn.title = light ? 'Switch to dark mode' : 'Switch to light mode';
+  };
+  const saved = localStorage.getItem('theme');
+  apply(saved === 'light');
+  btn.addEventListener('click', () => {
+    const isLight = document.body.classList.contains('light');
+    apply(!isLight);
+    localStorage.setItem('theme', !isLight ? 'light' : 'dark');
+  });
+})();
+
+// ── Service worker ─────────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 switchTab('overview');

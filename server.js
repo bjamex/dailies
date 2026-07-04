@@ -2,7 +2,8 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'dailies.json');
+const DB_FILE    = process.env.DB_FILE    || path.join(__dirname, 'dailies.json');
+const QUOTES_FILE = path.join(__dirname, 'quotes.json');
 
 function load() {
   try {
@@ -11,11 +12,15 @@ function load() {
       if (!('group' in t))       t.group = null;
       if (!('paused' in t))      t.paused = false;
       if (!('streak_goal' in t)) t.streak_goal = null;
+      if (!('notes' in t))       t.notes = '';
+      if (!('kind' in t))        t.kind = 'check';
+      if (!('target' in t))      t.target = null;
     }
-    if (!data.journal) data.journal = [];
+    if (!data.journal)   data.journal = [];
+    if (!data.settings)  data.settings = { resetHour: 0 };
     return data;
   } catch {
-    return { tasks: [], completions: [], reminders: [], journal: [], _seq: { tasks: 0, reminders: 0 } };
+    return { tasks: [], completions: [], reminders: [], journal: [], settings: { resetHour: 0 }, _seq: { tasks: 0, reminders: 0 } };
   }
 }
 
@@ -33,8 +38,13 @@ function now() {
   return new Date().toISOString().replace('T', ' ').substring(0, 19);
 }
 
-function getDailyPeriod(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function getDailyPeriod(d = new Date(), resetHour = 0) {
+  // If current hour is before resetHour, treat it as the previous calendar day
+  const shifted = new Date(d);
+  if (resetHour > 0 && shifted.getHours() < resetHour) {
+    shifted.setDate(shifted.getDate() - 1);
+  }
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}-${String(shifted.getDate()).padStart(2, '0')}`;
 }
 
 function getWeeklyPeriod() {
@@ -51,26 +61,26 @@ function getMonthlyPeriod() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function getPeriod(type) {
-  if (type === 'daily')   return getDailyPeriod();
+function getPeriod(type, resetHour = 0) {
+  if (type === 'daily')   return getDailyPeriod(new Date(), resetHour);
   if (type === 'weekly')  return getWeeklyPeriod();
   if (type === 'monthly') return getMonthlyPeriod();
 }
 
-function getDateOffset(n) {
+function getDateOffset(n, resetHour = 0) {
   const d = new Date();
   d.setDate(d.getDate() + n);
-  return getDailyPeriod(d);
+  return getDailyPeriod(d, resetHour);
 }
 
-function getStreakForTask(taskId, completions) {
-  const today = getDailyPeriod();
+function getStreakForTask(taskId, completions, resetHour = 0) {
+  const today = getDailyPeriod(new Date(), resetHour);
   const periods = new Set(completions.filter(c => c.task_id === taskId).map(c => c.period));
-  const start = periods.has(today) ? today : getDateOffset(-1);
+  const start = periods.has(today) ? today : getDateOffset(-1, resetHour);
   if (!periods.has(start)) return 0;
   let streak = 0;
   const d = new Date(start + 'T12:00:00');
-  while (periods.has(getDailyPeriod(d))) {
+  while (periods.has(getDailyPeriod(d, 0))) {
     streak++;
     d.setDate(d.getDate() - 1);
   }
@@ -118,7 +128,8 @@ app.get('/api/tasks', (req, res) => {
   const { type } = req.query;
   if (!VALID_TYPES.has(type)) return res.status(400).json({ error: 'invalid type' });
   const data = load();
-  const period = getPeriod(type);
+  const rh = data.settings.resetHour || 0;
+  const period = getPeriod(type, rh);
   const tasks = data.tasks
     .filter(t => t.type === type)
     .sort((a, b) => {
@@ -127,8 +138,10 @@ app.get('/api/tasks', (req, res) => {
     })
     .map(t => {
       const c = data.completions.find(c => c.task_id === t.id && c.period === period);
-      const streak = type === 'daily' && !t.paused ? getStreakForTask(t.id, data.completions) : null;
-      return { ...t, completed: !!c, completed_at: c?.completed_at ?? null, streak };
+      const streak = type === 'daily' && !t.paused ? getStreakForTask(t.id, data.completions, rh) : null;
+      const value = t.kind === 'count' ? (c?.value ?? 0) : null;
+      const completed = t.kind === 'count' ? (t.target ? (value >= t.target) : value > 0) : !!c;
+      return { ...t, completed, completed_at: c?.completed_at ?? null, streak, value };
     });
   res.json(tasks);
 });
@@ -142,15 +155,30 @@ app.post('/api/tasks', (req, res) => {
   const maxPos = data.tasks
     .filter(t => t.type === type && t.group === group)
     .reduce((m, t) => Math.max(m, t.position), -1);
+  const { kind = 'check', target = null } = req.body;
+  if (!['check', 'count'].includes(kind)) return res.status(400).json({ error: 'invalid kind' });
   const task = {
     id: nextId(data, 'tasks'), type, title: title.trim(),
     group, position: maxPos + 1, paused: false,
     streak_goal: streak_goal ? Number(streak_goal) : null,
+    notes: '', kind, target: target ? Number(target) : null,
     created_at: now(),
   };
   data.tasks.push(task);
   save(data);
   res.status(201).json({ id: task.id });
+});
+
+app.patch('/api/tasks/reorder', (req, res) => {
+  const { order } = req.body;
+  if (!Array.isArray(order)) return res.status(400).json({ error: 'order array required' });
+  const data = load();
+  for (const { id, position } of order) {
+    const task = data.tasks.find(t => t.id === Number(id));
+    if (task) task.position = position;
+  }
+  save(data);
+  res.json({ ok: true });
 });
 
 app.patch('/api/tasks/:id', (req, res) => {
@@ -170,6 +198,8 @@ app.patch('/api/tasks/:id', (req, res) => {
   if (req.body.streak_goal !== undefined) {
     task.streak_goal = req.body.streak_goal ? Number(req.body.streak_goal) : null;
   }
+  if (req.body.notes !== undefined) task.notes = String(req.body.notes);
+  if (req.body.target !== undefined) task.target = req.body.target ? Number(req.body.target) : null;
   save(data);
   res.json({ ok: true });
 });
@@ -188,7 +218,7 @@ app.post('/api/tasks/:id/complete', (req, res) => {
   const data = load();
   const task = data.tasks.find(t => t.id === id);
   if (!task) return res.status(404).json({ error: 'not found' });
-  const period = getPeriod(task.type);
+  const period = getPeriod(task.type, data.settings.resetHour || 0);
   if (!data.completions.find(c => c.task_id === id && c.period === period)) {
     data.completions.push({ task_id: id, period, completed_at: now() });
   }
@@ -201,10 +231,30 @@ app.delete('/api/tasks/:id/complete', (req, res) => {
   const data = load();
   const task = data.tasks.find(t => t.id === id);
   if (!task) return res.status(404).json({ error: 'not found' });
-  const period = getPeriod(task.type);
+  const period = getPeriod(task.type, data.settings.resetHour || 0);
   data.completions = data.completions.filter(c => !(c.task_id === id && c.period === period));
   save(data);
   res.json({ ok: true });
+});
+
+app.post('/api/tasks/:id/log', (req, res) => {
+  const id = Number(req.params.id);
+  const value = Number(req.body.value ?? 0);
+  if (!Number.isFinite(value) || value < 0) return res.status(400).json({ error: 'invalid value' });
+  const data = load();
+  const task = data.tasks.find(t => t.id === id);
+  if (!task || task.kind !== 'count') return res.status(404).json({ error: 'not found' });
+  const period = getPeriod(task.type, data.settings.resetHour || 0);
+  const idx = data.completions.findIndex(c => c.task_id === id && c.period === period);
+  if (value === 0) {
+    if (idx >= 0) data.completions.splice(idx, 1);
+  } else {
+    const entry = { task_id: id, period, value, completed_at: now() };
+    if (idx >= 0) data.completions[idx] = entry;
+    else data.completions.push(entry);
+  }
+  save(data);
+  res.json({ ok: true, value });
 });
 
 // ── Task history (for calendar heatmap) ───────────────────────────────────
@@ -228,6 +278,7 @@ app.get('/api/tasks/:id/history', (req, res) => {
 
 app.get('/api/stats', (req, res) => {
   const data = load();
+  const rh = data.settings.resetHour || 0;
   const days = 90;
   const dailyTasks = data.tasks.filter(t => t.type === 'daily');
 
@@ -254,7 +305,7 @@ app.get('/api/stats', (req, res) => {
     title: t.title,
     paused: t.paused,
     streak_goal: t.streak_goal,
-    currentStreak: t.paused ? null : getStreakForTask(t.id, data.completions),
+    currentStreak: t.paused ? null : getStreakForTask(t.id, data.completions, rh),
     bestStreak: getBestStreak(t.id, data.completions),
     rate: getCompletionRate(t.id, data.completions, t.created_at, days),
   })).sort((a, b) => (b.currentStreak ?? 0) - (a.currentStreak ?? 0));
@@ -269,7 +320,44 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
+// ── Quote of the day ───────────────────────────────────────────────────────
+
+app.get('/api/quote', (req, res) => {
+  let quotes;
+  try { quotes = JSON.parse(fs.readFileSync(QUOTES_FILE, 'utf8')); }
+  catch { return res.json({ quote: '' }); }
+  const d = new Date();
+  const dayOfYear = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
+  res.json({ quote: quotes[dayOfYear % quotes.length] });
+});
+
+// ── Settings ───────────────────────────────────────────────────────────────
+
+app.get('/api/settings', (req, res) => {
+  const data = load();
+  res.json(data.settings);
+});
+
+app.patch('/api/settings', (req, res) => {
+  const data = load();
+  if (req.body.resetHour !== undefined) {
+    const h = Number(req.body.resetHour);
+    if (!Number.isInteger(h) || h < 0 || h > 23) return res.status(400).json({ error: 'resetHour must be 0–23' });
+    data.settings.resetHour = h;
+  }
+  save(data);
+  res.json({ ok: true });
+});
+
 // ── Journal ────────────────────────────────────────────────────────────────
+
+app.get('/api/journal', (req, res) => {
+  const data = load();
+  const entries = [...data.journal]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map(({ date, updated_at }) => ({ date, updated_at }));
+  res.json(entries);
+});
 
 app.get('/api/journal/:date', (req, res) => {
   const data = load();
@@ -295,7 +383,8 @@ app.put('/api/journal/:date', (req, res) => {
 
 app.get('/api/summary', (req, res) => {
   const data = load();
-  const dailyPeriod   = getDailyPeriod();
+  const rh = data.settings.resetHour || 0;
+  const dailyPeriod   = getDailyPeriod(new Date(), rh);
   const weeklyPeriod  = getWeeklyPeriod();
   const monthlyPeriod = getMonthlyPeriod();
 
@@ -320,11 +409,11 @@ app.get('/api/summary', (req, res) => {
       const go = { morning: 0, afternoon: 1, null: 2 };
       return (go[a.group] ?? 2) - (go[b.group] ?? 2) || a.position - b.position;
     })
-    .map(t => ({ id: t.id, title: t.title, group: t.group, streak: getStreakForTask(t.id, data.completions) }));
+    .map(t => ({ id: t.id, title: t.title, group: t.group, streak: getStreakForTask(t.id, data.completions, rh) }));
 
   const topStreaks = dailyTasks
     .filter(t => !t.paused)
-    .map(t => ({ id: t.id, title: t.title, streak: getStreakForTask(t.id, data.completions), streak_goal: t.streak_goal }))
+    .map(t => ({ id: t.id, title: t.title, streak: getStreakForTask(t.id, data.completions, rh), streak_goal: t.streak_goal }))
     .filter(t => t.streak > 1)
     .sort((a, b) => b.streak - a.streak)
     .slice(0, 5);
@@ -335,6 +424,7 @@ app.get('/api/summary', (req, res) => {
   const isoWeek = parseInt(getWeeklyPeriod().split('-W')[1], 10);
 
   const todayEntry = data.journal.find(j => j.date === dailyPeriod);
+
 
   res.json({
     date: `${DAY_NAMES[d.getDay()]}, ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`,
@@ -364,6 +454,33 @@ app.get('/api/export.csv', (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="dailies-export.csv"');
   res.send(rows.join('\n'));
+});
+
+// ── Import CSV ─────────────────────────────────────────────────────────────
+
+app.post('/api/import.csv', express.text({ type: 'text/csv', limit: '10mb' }), (req, res) => {
+  const lines = req.body.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length || !lines[0].startsWith('task_id')) {
+    return res.status(400).json({ error: 'invalid CSV — missing header row' });
+  }
+  const data = load();
+  const existingPeriods = new Set(data.completions.map(c => `${c.task_id}:${c.period}`));
+  let imported = 0;
+  for (const line of lines.slice(1)) {
+    // task_id,"title",task_type,period,completed_at
+    const m = line.match(/^(\d+),"?(.*?)"?,(\w+),([\w-]+),(.*?)$/);
+    if (!m) continue;
+    const [, rawId, , , period, completed_at] = m;
+    const task_id = Number(rawId);
+    if (!data.tasks.find(t => t.id === task_id)) continue;
+    const key = `${task_id}:${period}`;
+    if (existingPeriods.has(key)) continue;
+    data.completions.push({ task_id, period, completed_at: completed_at.trim() || now() });
+    existingPeriods.add(key);
+    imported++;
+  }
+  save(data);
+  res.json({ ok: true, imported });
 });
 
 // ── Reminders ──────────────────────────────────────────────────────────────

@@ -5,16 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dailies</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1a1d27">
+  <link rel="apple-touch-icon" href="icon.svg">
 </head>
 <body>
   <header>
-    <h1>Dailies <button class="kb-help-btn" id="kb-help-btn" title="Keyboard shortcuts (?)">⌨</button></h1>
+    <h1>Dailies
+      <button class="theme-btn" id="theme-btn" title="Toggle light/dark mode">🌙</button>
+      <button class="kb-help-btn" id="kb-help-btn" title="Keyboard shortcuts (?)">⌨</button>
+    </h1>
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="overview"   role="tab">Overview</button>
       <button class="tab"        data-tab="daily"      role="tab">Daily</button>
       <button class="tab"        data-tab="weekly"     role="tab">Weekly</button>
       <button class="tab"        data-tab="monthly"    role="tab">Monthly</button>
       <button class="tab"        data-tab="stats"      role="tab">Stats</button>
+      <button class="tab"        data-tab="journal"    role="tab">Journal</button>
       <button class="tab"        data-tab="reminders"  role="tab">Reminders</button>
     </nav>
   </header>
@@ -34,7 +41,12 @@
           <option value="morning">Morning</option>
           <option value="afternoon">Afternoon</option>
         </select>
+        <select id="daily-kind-select" aria-label="Type">
+          <option value="check">Check</option>
+          <option value="count">Count</option>
+        </select>
         <input type="text" placeholder="Add a daily task…" id="daily-input" autocomplete="off">
+        <input type="number" placeholder="Target" id="daily-target-input" min="1" style="display:none;width:70px">
         <button type="submit">Add</button>
       </form>
     </section>
@@ -62,6 +74,11 @@
       <div id="stats-content"></div>
     </section>
 
+    <!-- Journal -->
+    <section id="journal" class="tab-panel" role="tabpanel" hidden>
+      <div id="journal-content"></div>
+    </section>
+
     <!-- Reminders -->
     <section id="reminders" class="tab-panel" role="tabpanel" hidden>
       <div class="reminder-list" id="reminder-list"></div>
@@ -71,6 +88,26 @@
       </form>
     </section>
   </main>
+
+  <!-- Weekly review modal -->
+  <div class="kb-modal" id="review-modal" hidden role="dialog" aria-modal="true" aria-label="Weekly review">
+    <div class="kb-modal-box review-modal-box">
+      <h2>Weekly Review</h2>
+      <div id="review-week-label" class="review-week-label"></div>
+      <div class="review-fields">
+        <label class="review-label">What went well this week?</label>
+        <textarea class="review-ta" id="review-well" rows="3" placeholder="Wins, progress, things you're proud of…"></textarea>
+        <label class="review-label">What was challenging?</label>
+        <textarea class="review-ta" id="review-hard" rows="3" placeholder="Struggles, blockers, things that were hard…"></textarea>
+        <label class="review-label">Focus for next week</label>
+        <textarea class="review-ta" id="review-next" rows="3" placeholder="Top priorities, intentions, goals…"></textarea>
+      </div>
+      <div class="review-actions">
+        <button class="kb-close" id="review-save-btn">Save Review</button>
+        <button class="review-cancel-btn" id="review-cancel-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Keyboard shortcuts modal -->
   <div class="kb-modal" id="kb-modal" hidden role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
@@ -82,6 +119,7 @@
         <kbd>w</kbd><span>Weekly</span>
         <kbd>m</kbd><span>Monthly</span>
         <kbd>s</kbd><span>Stats</span>
+        <kbd>j</kbd><span>Journal</span>
         <kbd>r</kbd><span>Reminders</span>
         <kbd>n</kbd><span>New task</span>
         <kbd>j</kbd><span>Next task</span>
