@@ -1,0 +1,4 @@
+node_modules
+dailies.json
+*.json.bak
+.git

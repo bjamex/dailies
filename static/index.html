@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dailies</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Dailies</h1>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="daily" role="tab" aria-selected="true">Daily</button>
+      <button class="tab" data-tab="weekly" role="tab" aria-selected="false">Weekly</button>
+      <button class="tab" data-tab="reminders" role="tab" aria-selected="false">Reminders</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="daily" class="tab-panel" role="tabpanel">
+      <ul class="task-list" id="daily-list"></ul>
+      <form class="add-form" id="daily-add-form">
+        <input type="text" placeholder="Add a daily task…" id="daily-input" autocomplete="off">
+        <button type="submit">Add</button>
+      </form>
+    </section>
+
+    <section id="weekly" class="tab-panel" role="tabpanel" hidden>
+      <ul class="task-list" id="weekly-list"></ul>
+      <form class="add-form" id="weekly-add-form">
+        <input type="text" placeholder="Add a weekly task…" id="weekly-input" autocomplete="off">
+        <button type="submit">Add</button>
+      </form>
+    </section>
+
+    <section id="reminders" class="tab-panel" role="tabpanel" hidden>
+      <div class="reminder-list" id="reminder-list"></div>
+      <form class="add-form" id="reminder-add-form">
+        <input type="text" placeholder="Add a reminder…" id="reminder-input" autocomplete="off">
+        <button type="submit">Add</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
