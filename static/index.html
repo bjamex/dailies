@@ -8,22 +8,24 @@
 </head>
 <body>
   <header>
-    <h1>Dailies</h1>
+    <h1>Dailies <button class="kb-help-btn" id="kb-help-btn" title="Keyboard shortcuts (?)">⌨</button></h1>
     <nav class="tabs" role="tablist">
-      <button class="tab active" data-tab="overview" role="tab" aria-selected="true">Overview</button>
-      <button class="tab" data-tab="daily" role="tab" aria-selected="false">Daily</button>
-      <button class="tab" data-tab="weekly" role="tab" aria-selected="false">Weekly</button>
-      <button class="tab" data-tab="reminders" role="tab" aria-selected="false">Reminders</button>
+      <button class="tab active" data-tab="overview"   role="tab">Overview</button>
+      <button class="tab"        data-tab="daily"      role="tab">Daily</button>
+      <button class="tab"        data-tab="weekly"     role="tab">Weekly</button>
+      <button class="tab"        data-tab="monthly"    role="tab">Monthly</button>
+      <button class="tab"        data-tab="stats"      role="tab">Stats</button>
+      <button class="tab"        data-tab="reminders"  role="tab">Reminders</button>
     </nav>
   </header>
 
   <main>
-    <!-- Overview / Dashboard -->
+    <!-- Overview -->
     <section id="overview" class="tab-panel" role="tabpanel">
       <div id="overview-content"></div>
     </section>
 
-    <!-- Daily tasks -->
+    <!-- Daily -->
     <section id="daily" class="tab-panel" role="tabpanel" hidden>
       <div class="task-groups" id="daily-groups"></div>
       <form class="add-form" id="daily-add-form">
@@ -37,13 +39,27 @@
       </form>
     </section>
 
-    <!-- Weekly tasks -->
+    <!-- Weekly -->
     <section id="weekly" class="tab-panel" role="tabpanel" hidden>
       <ul class="task-list" id="weekly-list"></ul>
       <form class="add-form" id="weekly-add-form">
         <input type="text" placeholder="Add a weekly task…" id="weekly-input" autocomplete="off">
         <button type="submit">Add</button>
       </form>
+    </section>
+
+    <!-- Monthly -->
+    <section id="monthly" class="tab-panel" role="tabpanel" hidden>
+      <ul class="task-list" id="monthly-list"></ul>
+      <form class="add-form" id="monthly-add-form">
+        <input type="text" placeholder="Add a monthly task…" id="monthly-input" autocomplete="off">
+        <button type="submit">Add</button>
+      </form>
+    </section>
+
+    <!-- Stats -->
+    <section id="stats" class="tab-panel" role="tabpanel" hidden>
+      <div id="stats-content"></div>
     </section>
 
     <!-- Reminders -->
@@ -55,6 +71,28 @@
       </form>
     </section>
   </main>
+
+  <!-- Keyboard shortcuts modal -->
+  <div class="kb-modal" id="kb-modal" hidden role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <div class="kb-modal-box">
+      <h2>Keyboard shortcuts</h2>
+      <div class="kb-grid">
+        <kbd>o</kbd><span>Overview</span>
+        <kbd>d</kbd><span>Daily</span>
+        <kbd>w</kbd><span>Weekly</span>
+        <kbd>m</kbd><span>Monthly</span>
+        <kbd>s</kbd><span>Stats</span>
+        <kbd>r</kbd><span>Reminders</span>
+        <kbd>n</kbd><span>New task</span>
+        <kbd>j</kbd><span>Next task</span>
+        <kbd>k</kbd><span>Prev task</span>
+        <kbd>Space</kbd><span>Toggle task</span>
+        <kbd>?</kbd><span>This help</span>
+        <kbd>Esc</kbd><span>Close</span>
+      </div>
+      <button class="kb-close" id="kb-close">Close</button>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
