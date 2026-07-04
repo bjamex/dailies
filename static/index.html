@@ -10,21 +10,34 @@
   <header>
     <h1>Dailies</h1>
     <nav class="tabs" role="tablist">
-      <button class="tab active" data-tab="daily" role="tab" aria-selected="true">Daily</button>
+      <button class="tab active" data-tab="overview" role="tab" aria-selected="true">Overview</button>
+      <button class="tab" data-tab="daily" role="tab" aria-selected="false">Daily</button>
       <button class="tab" data-tab="weekly" role="tab" aria-selected="false">Weekly</button>
       <button class="tab" data-tab="reminders" role="tab" aria-selected="false">Reminders</button>
     </nav>
   </header>
 
   <main>
-    <section id="daily" class="tab-panel" role="tabpanel">
-      <ul class="task-list" id="daily-list"></ul>
+    <!-- Overview / Dashboard -->
+    <section id="overview" class="tab-panel" role="tabpanel">
+      <div id="overview-content"></div>
+    </section>
+
+    <!-- Daily tasks -->
+    <section id="daily" class="tab-panel" role="tabpanel" hidden>
+      <div class="task-groups" id="daily-groups"></div>
       <form class="add-form" id="daily-add-form">
+        <select id="daily-group-select" aria-label="Group">
+          <option value="">Anytime</option>
+          <option value="morning">Morning</option>
+          <option value="afternoon">Afternoon</option>
+        </select>
         <input type="text" placeholder="Add a daily task…" id="daily-input" autocomplete="off">
         <button type="submit">Add</button>
       </form>
     </section>
 
+    <!-- Weekly tasks -->
     <section id="weekly" class="tab-panel" role="tabpanel" hidden>
       <ul class="task-list" id="weekly-list"></ul>
       <form class="add-form" id="weekly-add-form">
@@ -33,6 +46,7 @@
       </form>
     </section>
 
+    <!-- Reminders -->
     <section id="reminders" class="tab-panel" role="tabpanel" hidden>
       <div class="reminder-list" id="reminder-list"></div>
       <form class="add-form" id="reminder-add-form">
