@@ -1,16 +1,17 @@
 :root {
-  --bg: #f8f9fa;
-  --surface: #ffffff;
-  --border: #e2e8f0;
-  --text: #1a202c;
-  --text-muted: #718096;
-  --accent: #4f6ef7;
-  --accent-hover: #3a57d4;
-  --danger: #e53e3e;
-  --done-text: #a0aec0;
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface-2: #22263a;
+  --border: #2d3148;
+  --text: #e8eaf0;
+  --text-muted: #6b7280;
+  --accent: #7c84f8;
+  --accent-hover: #9da4fa;
+  --danger: #ef4444;
+  --done-text: #3d4259;
   --streak: #f97316;
   --radius: 8px;
-  --shadow: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -27,37 +28,36 @@ body {
 header {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 1rem 1.5rem 0;
+  padding: 0.875rem 1.25rem 0;
   position: sticky;
   top: 0;
   z-index: 10;
-  box-shadow: var(--shadow);
 }
 
 h1 {
-  font-size: 1.4rem;
+  font-size: 1.2rem;
   font-weight: 700;
   color: var(--accent);
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.6rem;
   letter-spacing: -0.02em;
 }
 
 .tabs {
   display: flex;
-  gap: 0.25rem;
+  gap: 0;
 }
 
 .tab {
   background: none;
   border: none;
-  padding: 0.5rem 1rem;
-  font-size: 0.9rem;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  border-radius: var(--radius) var(--radius) 0 0;
   transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
 }
 
 .tab:hover { color: var(--text); }
@@ -65,8 +65,8 @@ h1 {
 
 main {
   max-width: 640px;
-  margin: 1.5rem auto;
-  padding: 0 1rem;
+  margin: 1.25rem auto;
+  padding: 0 0.875rem;
 }
 
 .tab-panel { display: block; }
@@ -79,17 +79,16 @@ main {
 }
 
 .overview-date {
-  font-size: 1.3rem;
+  font-size: 1.25rem;
   font-weight: 700;
-  color: var(--text);
   letter-spacing: -0.02em;
 }
 
 .overview-week {
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   color: var(--text-muted);
   margin-top: 0.1rem;
 }
@@ -99,31 +98,31 @@ main {
 }
 
 .overview-label {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   color: var(--text-muted);
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.55rem;
 }
 
 .progress-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.45rem;
 }
 
 .progress-name {
-  width: 60px;
-  font-size: 0.85rem;
+  width: 56px;
+  font-size: 0.82rem;
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
 .progress-bar-wrap {
   flex: 1;
-  height: 6px;
+  height: 5px;
   background: var(--border);
   border-radius: 99px;
   overflow: hidden;
@@ -133,13 +132,13 @@ main {
   height: 100%;
   background: var(--accent);
   border-radius: 99px;
-  transition: width 0.3s;
+  transition: width 0.4s;
 }
 
 .progress-count {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
-  width: 40px;
+  width: 36px;
   text-align: right;
   flex-shrink: 0;
 }
@@ -148,28 +147,27 @@ main {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
 
 .overview-todo-item {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  font-size: 0.9rem;
-  color: var(--text);
+  gap: 0.55rem;
+  font-size: 0.88rem;
   padding: 0.5rem 0.75rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
-.overview-todo-item .group-chip {
-  font-size: 0.65rem;
-  font-weight: 600;
+.group-chip {
+  font-size: 0.6rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
-  background: var(--bg);
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 99px;
   padding: 0.1rem 0.45rem;
@@ -179,8 +177,8 @@ main {
 .streak-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
-  font-size: 0.75rem;
+  gap: 0.15rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--streak);
   margin-left: auto;
@@ -191,7 +189,7 @@ main {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
 
 .overview-streak-item {
@@ -202,17 +200,15 @@ main {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
 }
 
-.overview-streak-item .streak-badge {
-  margin-left: auto;
-}
+.overview-streak-item .streak-badge { margin-left: auto; }
 
 .overview-reminders {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
 
 .overview-reminder {
@@ -220,51 +216,46 @@ main {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: 0.88rem;
-  color: var(--text);
+  font-size: 0.85rem;
   white-space: pre-wrap;
 }
 
-/* ── Task list ─────────────────────────────────── */
+/* ── Task groups ──────────────────────────────── */
 
 .task-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .group-header {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   color: var(--text-muted);
-  padding: 0.9rem 0 0.4rem;
+  padding: 0.85rem 0 0.4rem;
 }
 
 .task-list {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  margin-bottom: 0.5rem;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
 }
 
 .task-item {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.7rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.65rem 0.9rem;
-  box-shadow: var(--shadow);
+  padding: 0.6rem 0.85rem;
 }
 
 .task-item input[type="checkbox"] {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   accent-color: var(--accent);
   cursor: pointer;
   flex-shrink: 0;
@@ -272,7 +263,7 @@ main {
 
 .task-label {
   flex: 1;
-  font-size: 0.93rem;
+  font-size: 0.9rem;
 }
 
 .task-item.done .task-label {
@@ -280,74 +271,67 @@ main {
   color: var(--done-text);
 }
 
-.task-item .streak-badge {
-  margin-left: 0;
-}
-
 .delete-btn {
   background: none;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.9rem;
   line-height: 1;
-  padding: 0 0.2rem;
+  padding: 0 0.15rem;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s;
   flex-shrink: 0;
 }
 
 .task-item:hover .delete-btn,
-.reminder-card:hover .delete-btn {
-  opacity: 1;
-}
-
+.reminder-card:hover .delete-btn { opacity: 1; }
 .delete-btn:hover { color: var(--danger); }
 
 /* ── Add form ─────────────────────────────────── */
 
 .add-form {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
-.add-form select {
-  padding: 0.55rem 0.6rem;
+.add-form select,
+.add-form input {
+  padding: 0.55rem 0.7rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-size: 0.85rem;
   background: var(--surface);
-  color: var(--text-muted);
-  outline: none;
-  cursor: pointer;
-}
-
-.add-form input {
-  flex: 1;
-  padding: 0.55rem 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: 0.9rem;
-  background: var(--surface);
   color: var(--text);
   outline: none;
   transition: border-color 0.15s;
+  -webkit-appearance: none;
 }
+
+.add-form select {
+  color: var(--text-muted);
+  cursor: pointer;
+  padding-right: 0.5rem;
+  flex-shrink: 0;
+}
+
+.add-form input { flex: 1; min-width: 0; }
 
 .add-form input:focus,
 .add-form select:focus { border-color: var(--accent); }
 
 .add-form button {
-  padding: 0.55rem 1.1rem;
+  padding: 0.55rem 0.9rem;
   background: var(--accent);
   color: #fff;
   border: none;
   border-radius: var(--radius);
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: 0.85rem;
+  font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .add-form button:hover { background: var(--accent-hover); }
@@ -357,8 +341,8 @@ main {
 .reminder-list {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  margin-bottom: 1rem;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
 }
 
 .reminder-card {
@@ -367,8 +351,7 @@ main {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.65rem 0.9rem;
-  box-shadow: var(--shadow);
+  padding: 0.6rem 0.85rem;
 }
 
 .reminder-card textarea {
@@ -377,24 +360,33 @@ main {
   outline: none;
   resize: none;
   font-family: inherit;
-  font-size: 0.93rem;
+  font-size: 0.9rem;
   color: var(--text);
   background: transparent;
   line-height: 1.5;
-  min-height: 2rem;
+  min-height: 1.5rem;
   overflow: hidden;
 }
 
-/* ── Misc ─────────────────────────────────── */
+/* ── Misc ─────────────────────────────────────── */
 
 .empty-state {
   text-align: center;
   color: var(--text-muted);
-  font-size: 0.9rem;
-  padding: 1.5rem 0;
+  font-size: 0.875rem;
+  padding: 1.25rem 0;
 }
+
+/* ── Mobile ───────────────────────────────────── */
 
 @media (max-width: 480px) {
   header { padding: 0.75rem 1rem 0; }
-  .tab { padding: 0.5rem 0.65rem; font-size: 0.82rem; }
+
+  .tab { padding: 0.5rem 0.6rem; font-size: 0.78rem; }
+
+  .add-form { flex-wrap: wrap; }
+  .add-form select { width: 100%; }
+  .add-form input { flex: 1; }
+
+  .overview-date { font-size: 1.1rem; }
 }
