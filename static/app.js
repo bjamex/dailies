@@ -164,6 +164,23 @@ async function loadOverview() {
             }).join('')}
           </select>
         </label>
+        <div class="settings-divider"></div>
+        <div class="settings-row-label">Vacation / streak freeze days</div>
+        <div class="vacation-chips" id="vacation-chips">
+          ${(settings.vacationDays || []).map(d => `<span class="vacation-chip" data-date="${d}">${d} <button class="vacation-chip-del" data-date="${d}">✕</button></span>`).join('')}
+        </div>
+        <div class="settings-row vacation-add-row">
+          <input type="date" id="vacation-date-input" class="vacation-date-input">
+          <button class="vacation-add-btn" id="vacation-add-btn">Add day</button>
+        </div>
+        <div class="settings-divider"></div>
+        <div class="settings-row-label">PIN lock</div>
+        <div class="settings-row">
+          <span id="pin-status-label">${settings.pin ? 'PIN is set' : 'No PIN set'}</span>
+          <div style="display:flex;gap:.4rem">
+            ${settings.pin ? `<button class="vacation-add-btn" id="change-pin-btn">Change</button><button class="vacation-add-btn danger-btn" id="remove-pin-btn">Remove</button>` : `<button class="vacation-add-btn" id="set-pin-btn">Set PIN</button>`}
+          </div>
+        </div>
       </div>
     </details>
   `;
@@ -184,10 +201,48 @@ async function loadOverview() {
     });
   }
 
-  // Settings
+  // Settings — reset hour
   document.getElementById('reset-hour-select')?.addEventListener('change', async (e) => {
     await api.saveSettings({ resetHour: Number(e.target.value) });
     loaded.delete('daily'); loaded.delete('weekly'); loaded.delete('monthly');
+    loadOverview();
+  });
+
+  // Settings — vacation days
+  document.getElementById('vacation-add-btn')?.addEventListener('click', async () => {
+    const input = document.getElementById('vacation-date-input');
+    const date = input.value;
+    if (!date) return;
+    const current = (settings.vacationDays || []);
+    if (current.includes(date)) return;
+    const next = [...current, date].sort();
+    await api.saveSettings({ vacationDays: next });
+    settings.vacationDays = next;
+    const chips = document.getElementById('vacation-chips');
+    const chip = document.createElement('span');
+    chip.className = 'vacation-chip';
+    chip.dataset.date = date;
+    chip.innerHTML = `${date} <button class="vacation-chip-del" data-date="${date}">✕</button>`;
+    chips.appendChild(chip);
+    input.value = '';
+  });
+
+  document.getElementById('vacation-chips')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.vacation-chip-del');
+    if (!btn) return;
+    const date = btn.dataset.date;
+    const next = (settings.vacationDays || []).filter(d => d !== date);
+    await api.saveSettings({ vacationDays: next });
+    settings.vacationDays = next;
+    btn.closest('.vacation-chip').remove();
+  });
+
+  // Settings — PIN
+  document.getElementById('set-pin-btn')?.addEventListener('click', () => openPinSetModal(false));
+  document.getElementById('change-pin-btn')?.addEventListener('click', () => openPinSetModal(true));
+  document.getElementById('remove-pin-btn')?.addEventListener('click', async () => {
+    await api.saveSettings({ pin: null });
+    sessionStorage.removeItem('pin-unlocked');
     loadOverview();
   });
 
@@ -232,6 +287,7 @@ function makeTaskItem(task) {
     </span>
     ${task.streak ? streakBadge(task.streak, task.streak_goal) : ''}
     ${countHtml}
+    <button class="edit-btn" title="Edit" data-action="edit">✎</button>
     <button class="pause-btn" title="${task.paused ? 'Resume' : 'Pause'}" data-action="pause">${task.paused ? '▶' : '⏸'}</button>
     <button class="delete-btn" title="Delete" data-action="delete">✕</button>
   `;
@@ -373,6 +429,7 @@ async function loadTasks(type) {
   const tasks = await api.getTasks(type);
   if (type === 'daily') {
     renderGroupedTasks(tasks, document.getElementById('daily-groups'));
+    scheduleNotifications(tasks);
   } else {
     renderFlatTasks(tasks, document.getElementById(`${type}-list`));
   }
@@ -497,10 +554,15 @@ async function loadStats() {
     <div class="stats-section">
       <div class="stats-label">Export / Import</div>
       <div class="import-export-row">
-        <a class="export-btn" href="/api/export.csv" download="dailies-export.csv">⬇ Download CSV</a>
+        <a class="export-btn" href="/api/export.csv" download="dailies-export.csv">⬇ CSV</a>
         <label class="export-btn import-label">
-          ⬆ Import CSV
+          ⬆ CSV
           <input type="file" accept=".csv,text/csv" id="import-file-input" style="display:none">
+        </label>
+        <a class="export-btn" href="/api/backup" download="dailies-backup.json">⬇ Backup</a>
+        <label class="export-btn import-label">
+          ⬆ Restore
+          <input type="file" accept=".json,application/json" id="restore-file-input" style="display:none">
         </label>
       </div>
       <div id="import-status" class="import-status"></div>
@@ -532,6 +594,35 @@ async function loadStats() {
       }
     } catch {
       statusEl.textContent = 'Import failed';
+      statusEl.className = 'import-status error';
+    }
+    e.target.value = '';
+  });
+
+  // Restore backup
+  document.getElementById('restore-file-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const statusEl = document.getElementById('import-status');
+    statusEl.textContent = 'Restoring…';
+    statusEl.className = 'import-status';
+    try {
+      const json = JSON.parse(await file.text());
+      const result = await fetch('/api/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(json),
+      }).then(r => r.json());
+      if (result.ok) {
+        statusEl.textContent = '✓ Restore complete — reloading…';
+        statusEl.className = 'import-status success';
+        setTimeout(() => location.reload(), 800);
+      } else {
+        statusEl.textContent = `Error: ${result.error}`;
+        statusEl.className = 'import-status error';
+      }
+    } catch {
+      statusEl.textContent = 'Invalid backup file';
       statusEl.className = 'import-status error';
     }
     e.target.value = '';
@@ -683,6 +774,7 @@ function taskListHandler(type) {
       try {
         if (checked) await api.completeTask(id);
         else         await api.uncompleteTask(id);
+        if (checked) checkAllDone();
         refreshOverview();
       } catch {
         e.target.checked = !checked;
@@ -697,9 +789,14 @@ function taskListHandler(type) {
       const target = li.dataset.target ? Number(li.dataset.target) : null;
       const valEl = li.querySelector('.count-val');
       if (valEl) valEl.innerHTML = `${next}${target ? `<span class="count-target">/${target}</span>` : ''}`;
-      li.classList.toggle('done', target ? next >= target : next > 0);
+      const nowDone = target ? next >= target : next > 0;
+      li.classList.toggle('done', nowDone);
       await api.logTask(id, next);
+      if (nowDone) checkAllDone();
       refreshOverview();
+
+    } else if (action === 'edit') {
+      openTaskEditModal(li);
 
     } else if (action === 'pause') {
       const paused = !li.classList.contains('paused');
@@ -900,17 +997,285 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// ── Task edit modal ───────────────────────────────────────────────────────
+
+const taskEditModal = document.getElementById('task-edit-modal');
+let editingTaskEl = null;
+
+function openTaskEditModal(li) {
+  editingTaskEl = li;
+  const id = li.dataset.id;
+  const titleEl = li.querySelector('.task-label');
+  document.getElementById('task-edit-title').value = titleEl?.textContent || '';
+
+  // Fetch full task data for streak_goal and notify_time
+  fetch(`/api/tasks?type=daily`).then(r => r.json()).then(tasks => {
+    const task = tasks.find(t => String(t.id) === String(id));
+    if (task) {
+      document.getElementById('task-edit-streak').value = task.streak_goal || '';
+      document.getElementById('task-edit-notify').value = task.notify_time || '';
+    }
+  }).catch(() => {});
+
+  // Show/hide rows based on task type (daily tasks have full options)
+  const isDaily = li.closest('#daily-groups') !== null;
+  document.getElementById('task-edit-streak-row').style.display = isDaily ? '' : 'none';
+  document.getElementById('task-edit-notify-row').style.display = isDaily ? '' : 'none';
+
+  taskEditModal.hidden = false;
+  document.getElementById('task-edit-title').focus();
+  document.getElementById('task-edit-title').select();
+}
+
+function closeTaskEditModal() {
+  taskEditModal.hidden = true;
+  editingTaskEl = null;
+}
+
+document.getElementById('task-edit-save')?.addEventListener('click', async () => {
+  if (!editingTaskEl) return;
+  const id = editingTaskEl.dataset.id;
+  const title = document.getElementById('task-edit-title').value.trim();
+  const streak_goal = Number(document.getElementById('task-edit-streak').value) || null;
+  const notify_time = document.getElementById('task-edit-notify').value || null;
+  if (!title) return;
+
+  if (notify_time && Notification.permission === 'default') {
+    await Notification.requestPermission();
+  }
+
+  await api.updateTask(id, { title, streak_goal, notify_time });
+
+  // Update label in DOM without full reload
+  const labelEl = editingTaskEl.querySelector('.task-label');
+  if (labelEl) labelEl.textContent = title;
+
+  closeTaskEditModal();
+  // Reload the tab to reflect streak_goal badge change
+  const type = editingTaskEl.closest('#daily-groups') ? 'daily'
+    : editingTaskEl.closest('#weekly-list') ? 'weekly' : 'monthly';
+  loadTasks(type);
+  if (loaded.has('stats')) loaded.delete('stats');
+});
+
+document.getElementById('task-edit-cancel')?.addEventListener('click', closeTaskEditModal);
+taskEditModal?.addEventListener('click', (e) => { if (e.target === taskEditModal) closeTaskEditModal(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !taskEditModal.hidden) closeTaskEditModal();
+});
+
+// ── Notifications ─────────────────────────────────────────────────────────
+
+function scheduleNotifications(tasks) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const today = new Date().toISOString().split('T')[0];
+  const shownKey = `notif-${today}`;
+  const shown = new Set(JSON.parse(sessionStorage.getItem(shownKey) || '[]'));
+  const now = new Date();
+
+  for (const task of tasks) {
+    if (!task.notify_time || task.completed || task.paused) continue;
+    if (shown.has(String(task.id))) continue;
+    const [h, m] = task.notify_time.split(':').map(Number);
+    const target = new Date();
+    target.setHours(h, m, 0, 0);
+    const ms = target - now;
+    if (ms < -60000 || ms > 86400000) continue;
+    if (ms <= 0) {
+      // already past — show immediately if within last minute
+      new Notification('Dailies', { body: task.title, icon: '/icon.svg', tag: String(task.id) });
+      shown.add(String(task.id));
+    } else {
+      setTimeout(() => {
+        new Notification('Dailies', { body: task.title, icon: '/icon.svg', tag: String(task.id) });
+        shown.add(String(task.id));
+        sessionStorage.setItem(shownKey, JSON.stringify([...shown]));
+      }, ms);
+    }
+  }
+  sessionStorage.setItem(shownKey, JSON.stringify([...shown]));
+}
+
+// ── Confetti celebration ──────────────────────────────────────────────────
+
+function celebrate() {
+  const el = document.createElement('div');
+  el.className = 'confetti-container';
+  document.body.appendChild(el);
+  const colors = ['#7c84f8','#f97316','#22c55e','#f59e0b','#06b6d4','#ec4899'];
+  for (let i = 0; i < 70; i++) {
+    const p = document.createElement('div');
+    p.className = 'confetti-piece';
+    p.style.cssText = `left:${Math.random()*100}%;background:${colors[i%colors.length]};` +
+      `animation-delay:${(Math.random()*0.6).toFixed(2)}s;` +
+      `animation-duration:${(0.9+Math.random()*0.8).toFixed(2)}s;` +
+      `width:${4+Math.random()*6|0}px;height:${4+Math.random()*6|0}px;` +
+      `transform:rotate(${Math.random()*360|0}deg)`;
+    el.appendChild(p);
+  }
+  setTimeout(() => el.remove(), 3500);
+}
+
+function checkAllDone() {
+  const panel = document.getElementById('daily-groups');
+  if (!panel) return;
+  const all = panel.querySelectorAll('.task-item:not(.paused)');
+  const done = panel.querySelectorAll('.task-item:not(.paused).done');
+  if (all.length && done.length === all.length) celebrate();
+}
+
+// ── PIN lock ──────────────────────────────────────────────────────────────
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+const pinOverlay = document.getElementById('pin-overlay');
+let pinBuffer = '';
+
+function renderPinDots() {
+  for (let i = 0; i < 4; i++) {
+    document.getElementById(`pd${i}`).classList.toggle('filled', i < pinBuffer.length);
+  }
+}
+
+async function handlePinDigit(digit) {
+  if (pinBuffer.length >= 4) return;
+  pinBuffer += digit;
+  renderPinDots();
+  if (pinBuffer.length === 4) {
+    const hash = await sha256(pinBuffer);
+    const settings = await api.getSettings();
+    if (hash === settings.pin) {
+      sessionStorage.setItem('pin-unlocked', '1');
+      pinOverlay.hidden = true;
+      pinBuffer = '';
+    } else {
+      document.getElementById('pin-error').textContent = 'Incorrect PIN';
+      pinBuffer = '';
+      renderPinDots();
+      setTimeout(() => { document.getElementById('pin-error').textContent = ''; }, 1200);
+    }
+  }
+}
+
+pinOverlay?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.pin-key');
+  if (!btn) return;
+  if (btn.dataset.digit !== undefined) await handlePinDigit(btn.dataset.digit);
+  else if (btn.dataset.action === 'back') { pinBuffer = pinBuffer.slice(0,-1); renderPinDots(); }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (pinOverlay?.hidden) return;
+  if (/^\d$/.test(e.key)) handlePinDigit(e.key);
+  else if (e.key === 'Backspace') { pinBuffer = pinBuffer.slice(0,-1); renderPinDots(); }
+}, { capture: true });
+
+async function initPinLock() {
+  if (sessionStorage.getItem('pin-unlocked')) return;
+  const settings = await api.getSettings();
+  if (settings.pin) pinOverlay.hidden = false;
+}
+
+// PIN set modal (reuses review modal pattern inline)
+let pinSetMode = false; // false=new, true=change
+let pinSetStep = 0;
+let pinSetFirst = '';
+
+async function openPinSetModal(isChange) {
+  pinSetMode = isChange;
+  pinSetStep = isChange ? 0 : 1; // step 0 = verify old, 1 = enter new, 2 = confirm new
+  pinSetFirst = '';
+  const overlay = document.createElement('div');
+  overlay.className = 'kb-modal';
+  overlay.id = 'pin-set-overlay';
+  const labels = ['Enter your current PIN', 'Enter new PIN (4 digits)', 'Confirm new PIN'];
+  overlay.innerHTML = `<div class="kb-modal-box pin-set-box">
+    <h2>${isChange ? 'Change PIN' : 'Set PIN'}</h2>
+    <div class="pin-set-label" id="pin-set-label">${labels[pinSetStep]}</div>
+    <div class="pin-dots" id="pin-set-dots">
+      <span class="pin-dot" id="psd0"></span><span class="pin-dot" id="psd1"></span>
+      <span class="pin-dot" id="psd2"></span><span class="pin-dot" id="psd3"></span>
+    </div>
+    <div class="pin-error" id="pin-set-error"></div>
+    <div class="pin-pad">
+      <button class="pin-key" data-d="1">1</button><button class="pin-key" data-d="2">2</button><button class="pin-key" data-d="3">3</button>
+      <button class="pin-key" data-d="4">4</button><button class="pin-key" data-d="5">5</button><button class="pin-key" data-d="6">6</button>
+      <button class="pin-key" data-d="7">7</button><button class="pin-key" data-d="8">8</button><button class="pin-key" data-d="9">9</button>
+      <button class="pin-key pin-empty"></button><button class="pin-key" data-d="0">0</button>
+      <button class="pin-key pin-back" data-back="1">⌫</button>
+    </div>
+    <button class="review-cancel-btn" id="pin-set-cancel">Cancel</button>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  let buf = '';
+  const labels2 = isChange
+    ? ['Enter your current PIN', 'Enter new PIN', 'Confirm new PIN']
+    : ['Enter new PIN', 'Confirm new PIN'];
+
+  function renderDots() {
+    for (let i = 0; i < 4; i++) document.getElementById(`psd${i}`).classList.toggle('filled', i < buf.length);
+  }
+
+  async function handleDigit(d) {
+    if (buf.length >= 4) return;
+    buf += d;
+    renderDots();
+    if (buf.length < 4) return;
+
+    const errEl = document.getElementById('pin-set-error');
+    const lblEl = document.getElementById('pin-set-label');
+    const stepIndex = pinSetStep - (isChange ? 0 : 1);
+
+    if (isChange && pinSetStep === 0) {
+      // Verify current PIN
+      const settings = await api.getSettings();
+      const hash = await sha256(buf);
+      if (hash !== settings.pin) { errEl.textContent = 'Incorrect PIN'; buf = ''; renderDots(); return; }
+      pinSetStep = 1; buf = ''; renderDots(); errEl.textContent = '';
+      lblEl.textContent = labels2[1];
+    } else if (pinSetStep === 1) {
+      pinSetFirst = buf; pinSetStep = 2; buf = ''; renderDots();
+      lblEl.textContent = isChange ? labels2[2] : labels2[1];
+    } else {
+      if (buf !== pinSetFirst) { errEl.textContent = 'PINs don\'t match'; buf = ''; renderDots(); return; }
+      const hash = await sha256(buf);
+      await api.saveSettings({ pin: hash });
+      sessionStorage.setItem('pin-unlocked', '1');
+      overlay.remove();
+      loadOverview();
+    }
+  }
+
+  overlay.addEventListener('click', async (e) => {
+    if (e.target.dataset.d) await handleDigit(e.target.dataset.d);
+    else if (e.target.dataset.back) { buf = buf.slice(0,-1); renderDots(); }
+    else if (e.target.id === 'pin-set-cancel') overlay.remove();
+  });
+}
+
 // ── Theme toggle ─────────────────────────────────────────────────────────
 
 (function initTheme() {
   const btn = document.getElementById('theme-btn');
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
   const apply = (light) => {
     document.body.classList.toggle('light', light);
     btn.textContent = light ? '🌙' : '☀️';
     btn.title = light ? 'Switch to dark mode' : 'Switch to light mode';
   };
   const saved = localStorage.getItem('theme');
-  apply(saved === 'light');
+  if (saved) {
+    apply(saved === 'light');
+  } else {
+    apply(!systemDark.matches);
+    systemDark.addEventListener('change', e => {
+      if (!localStorage.getItem('theme')) apply(!e.matches);
+    });
+  }
   btn.addEventListener('click', () => {
     const isLight = document.body.classList.contains('light');
     apply(!isLight);
@@ -924,4 +1289,4 @@ if ('serviceWorker' in navigator) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────
-switchTab('overview');
+initPinLock().then(() => switchTab('overview'));

@@ -89,6 +89,58 @@
     </section>
   </main>
 
+  <!-- PIN overlay -->
+  <div id="pin-overlay" class="pin-overlay" hidden>
+    <div class="pin-box">
+      <div class="pin-title">Dailies</div>
+      <div class="pin-dots">
+        <span class="pin-dot" id="pd0"></span>
+        <span class="pin-dot" id="pd1"></span>
+        <span class="pin-dot" id="pd2"></span>
+        <span class="pin-dot" id="pd3"></span>
+      </div>
+      <div class="pin-error" id="pin-error"></div>
+      <div class="pin-pad">
+        <button class="pin-key" data-digit="1">1</button>
+        <button class="pin-key" data-digit="2">2</button>
+        <button class="pin-key" data-digit="3">3</button>
+        <button class="pin-key" data-digit="4">4</button>
+        <button class="pin-key" data-digit="5">5</button>
+        <button class="pin-key" data-digit="6">6</button>
+        <button class="pin-key" data-digit="7">7</button>
+        <button class="pin-key" data-digit="8">8</button>
+        <button class="pin-key" data-digit="9">9</button>
+        <button class="pin-key pin-empty"></button>
+        <button class="pin-key" data-digit="0">0</button>
+        <button class="pin-key pin-back" data-action="back">⌫</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task edit modal -->
+  <div class="kb-modal" id="task-edit-modal" hidden role="dialog" aria-modal="true" aria-label="Edit task">
+    <div class="kb-modal-box">
+      <h2>Edit Task</h2>
+      <div class="task-edit-fields">
+        <label class="task-edit-label" for="task-edit-title">Title</label>
+        <input type="text" id="task-edit-title" class="task-edit-input" autocomplete="off">
+        <div id="task-edit-streak-row">
+          <label class="task-edit-label" for="task-edit-streak">Streak goal (days)</label>
+          <input type="number" id="task-edit-streak" class="task-edit-input" min="1" placeholder="e.g. 30 — leave blank for none">
+        </div>
+        <div id="task-edit-notify-row">
+          <label class="task-edit-label" for="task-edit-notify">Remind me at</label>
+          <input type="time" id="task-edit-notify" class="task-edit-input">
+          <div class="task-edit-hint">Requires this page to be open</div>
+        </div>
+      </div>
+      <div class="review-actions">
+        <button class="kb-close" id="task-edit-save">Save</button>
+        <button class="review-cancel-btn" id="task-edit-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Weekly review modal -->
   <div class="kb-modal" id="review-modal" hidden role="dialog" aria-modal="true" aria-label="Weekly review">
     <div class="kb-modal-box review-modal-box">

@@ -9,18 +9,22 @@ function load() {
   try {
     const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     for (const t of data.tasks) {
-      if (!('group' in t))       t.group = null;
-      if (!('paused' in t))      t.paused = false;
-      if (!('streak_goal' in t)) t.streak_goal = null;
-      if (!('notes' in t))       t.notes = '';
-      if (!('kind' in t))        t.kind = 'check';
-      if (!('target' in t))      t.target = null;
+      if (!('group' in t))        t.group = null;
+      if (!('paused' in t))       t.paused = false;
+      if (!('streak_goal' in t))  t.streak_goal = null;
+      if (!('notes' in t))        t.notes = '';
+      if (!('kind' in t))         t.kind = 'check';
+      if (!('target' in t))       t.target = null;
+      if (!('notify_time' in t))  t.notify_time = null;
     }
-    if (!data.journal)   data.journal = [];
-    if (!data.settings)  data.settings = { resetHour: 0 };
+    if (!data.journal)  data.journal = [];
+    if (!data.settings) data.settings = {};
+    if (!('resetHour'    in data.settings)) data.settings.resetHour    = 0;
+    if (!('vacationDays' in data.settings)) data.settings.vacationDays = [];
+    if (!('pin'          in data.settings)) data.settings.pin          = null;
     return data;
   } catch {
-    return { tasks: [], completions: [], reminders: [], journal: [], settings: { resetHour: 0 }, _seq: { tasks: 0, reminders: 0 } };
+    return { tasks: [], completions: [], reminders: [], journal: [], settings: { resetHour: 0, vacationDays: [], pin: null }, _seq: { tasks: 0, reminders: 0 } };
   }
 }
 
@@ -73,14 +77,16 @@ function getDateOffset(n, resetHour = 0) {
   return getDailyPeriod(d, resetHour);
 }
 
-function getStreakForTask(taskId, completions, resetHour = 0) {
+function getStreakForTask(taskId, completions, resetHour = 0, vacationDays = []) {
+  const vacSet = new Set(vacationDays);
   const today = getDailyPeriod(new Date(), resetHour);
   const periods = new Set(completions.filter(c => c.task_id === taskId).map(c => c.period));
-  const start = periods.has(today) ? today : getDateOffset(-1, resetHour);
-  if (!periods.has(start)) return 0;
+  const isDone = (p) => periods.has(p) || vacSet.has(p);
+  const start = isDone(today) ? today : getDateOffset(-1, resetHour);
+  if (!isDone(start)) return 0;
   let streak = 0;
   const d = new Date(start + 'T12:00:00');
-  while (periods.has(getDailyPeriod(d, 0))) {
+  while (isDone(getDailyPeriod(d, 0))) {
     streak++;
     d.setDate(d.getDate() - 1);
   }
@@ -138,7 +144,7 @@ app.get('/api/tasks', (req, res) => {
     })
     .map(t => {
       const c = data.completions.find(c => c.task_id === t.id && c.period === period);
-      const streak = type === 'daily' && !t.paused ? getStreakForTask(t.id, data.completions, rh) : null;
+      const streak = type === 'daily' && !t.paused ? getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays) : null;
       const value = t.kind === 'count' ? (c?.value ?? 0) : null;
       const completed = t.kind === 'count' ? (t.target ? (value >= t.target) : value > 0) : !!c;
       return { ...t, completed, completed_at: c?.completed_at ?? null, streak, value };
@@ -162,6 +168,7 @@ app.post('/api/tasks', (req, res) => {
     group, position: maxPos + 1, paused: false,
     streak_goal: streak_goal ? Number(streak_goal) : null,
     notes: '', kind, target: target ? Number(target) : null,
+    notify_time: null,
     created_at: now(),
   };
   data.tasks.push(task);
@@ -198,8 +205,9 @@ app.patch('/api/tasks/:id', (req, res) => {
   if (req.body.streak_goal !== undefined) {
     task.streak_goal = req.body.streak_goal ? Number(req.body.streak_goal) : null;
   }
-  if (req.body.notes !== undefined) task.notes = String(req.body.notes);
-  if (req.body.target !== undefined) task.target = req.body.target ? Number(req.body.target) : null;
+  if (req.body.notes !== undefined)       task.notes = String(req.body.notes);
+  if (req.body.target !== undefined)      task.target = req.body.target ? Number(req.body.target) : null;
+  if (req.body.notify_time !== undefined) task.notify_time = req.body.notify_time || null;
   save(data);
   res.json({ ok: true });
 });
@@ -305,7 +313,7 @@ app.get('/api/stats', (req, res) => {
     title: t.title,
     paused: t.paused,
     streak_goal: t.streak_goal,
-    currentStreak: t.paused ? null : getStreakForTask(t.id, data.completions, rh),
+    currentStreak: t.paused ? null : getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays),
     bestStreak: getBestStreak(t.id, data.completions),
     rate: getCompletionRate(t.id, data.completions, t.created_at, days),
   })).sort((a, b) => (b.currentStreak ?? 0) - (a.currentStreak ?? 0));
@@ -344,6 +352,13 @@ app.patch('/api/settings', (req, res) => {
     const h = Number(req.body.resetHour);
     if (!Number.isInteger(h) || h < 0 || h > 23) return res.status(400).json({ error: 'resetHour must be 0–23' });
     data.settings.resetHour = h;
+  }
+  if (req.body.vacationDays !== undefined) {
+    if (!Array.isArray(req.body.vacationDays)) return res.status(400).json({ error: 'array required' });
+    data.settings.vacationDays = req.body.vacationDays.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  }
+  if (req.body.pin !== undefined) {
+    data.settings.pin = req.body.pin || null;
   }
   save(data);
   res.json({ ok: true });
@@ -409,11 +424,11 @@ app.get('/api/summary', (req, res) => {
       const go = { morning: 0, afternoon: 1, null: 2 };
       return (go[a.group] ?? 2) - (go[b.group] ?? 2) || a.position - b.position;
     })
-    .map(t => ({ id: t.id, title: t.title, group: t.group, streak: getStreakForTask(t.id, data.completions, rh) }));
+    .map(t => ({ id: t.id, title: t.title, group: t.group, streak: getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays) }));
 
   const topStreaks = dailyTasks
     .filter(t => !t.paused)
-    .map(t => ({ id: t.id, title: t.title, streak: getStreakForTask(t.id, data.completions, rh), streak_goal: t.streak_goal }))
+    .map(t => ({ id: t.id, title: t.title, streak: getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays), streak_goal: t.streak_goal }))
     .filter(t => t.streak > 1)
     .sort((a, b) => b.streak - a.streak)
     .slice(0, 5);
@@ -454,6 +469,24 @@ app.get('/api/export.csv', (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="dailies-export.csv"');
   res.send(rows.join('\n'));
+});
+
+// ── Backup / Restore ───────────────────────────────────────────────────────
+
+app.get('/api/backup', (req, res) => {
+  const data = load();
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', 'attachment; filename="dailies-backup.json"');
+  res.send(JSON.stringify(data, null, 2));
+});
+
+app.post('/api/restore', express.json({ limit: '50mb' }), (req, res) => {
+  const data = req.body;
+  if (!Array.isArray(data?.tasks) || !Array.isArray(data?.completions)) {
+    return res.status(400).json({ error: 'invalid backup file' });
+  }
+  save(data);
+  res.json({ ok: true });
 });
 
 // ── Import CSV ─────────────────────────────────────────────────────────────
