@@ -401,6 +401,10 @@ main {
 }
 
 .task-item:hover .drag-handle { opacity: 0.5; }
+
+@media (hover: none) {
+  .drag-handle { opacity: 0.3; }
+}
 .task-item.dragging { opacity: 0.4; }
 .task-item.drag-over { border-color: var(--accent); }
 .task-item.swiping-right { background: rgba(138,158,128,0.14); transition: none; }
