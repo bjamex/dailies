@@ -18,6 +18,7 @@ function load() {
       if (!('notify_time' in t))  t.notify_time = null;
     }
     if (!data.journal)  data.journal = [];
+    if (!data.todos)    data.todos = [];
     if (!data.mood)     data.mood = {};
     if (!data.settings) data.settings = {};
     if (!('resetHour'    in data.settings)) data.settings.resetHour    = 0;
@@ -25,7 +26,7 @@ function load() {
     if (!('pin'          in data.settings)) data.settings.pin          = null;
     return data;
   } catch {
-    return { tasks: [], completions: [], reminders: [], journal: [], mood: {}, settings: { resetHour: 0, vacationDays: [], pin: null }, _seq: { tasks: 0, reminders: 0 } };
+    return { tasks: [], completions: [], reminders: [], journal: [], todos: [], mood: {}, settings: { resetHour: 0, vacationDays: [], pin: null }, _seq: { tasks: 0, reminders: 0 } };
   }
 }
 
@@ -391,6 +392,68 @@ app.put('/api/journal/:date', (req, res) => {
   // keep only last 365 entries
   data.journal.sort((a, b) => b.date.localeCompare(a.date));
   if (data.journal.length > 365) data.journal = data.journal.slice(0, 365);
+  save(data);
+  res.json({ ok: true });
+});
+
+// ── Todos ──────────────────────────────────────────────────────────────────
+
+app.get('/api/todos', (req, res) => {
+  const data = load();
+  res.json([...(data.todos || [])].sort((a, b) => a.position - b.position || a.id - b.id));
+});
+
+app.post('/api/todos', (req, res) => {
+  const { title } = req.body;
+  if (!title?.trim()) return res.status(400).json({ error: 'title required' });
+  const data = load();
+  if (!data.todos) data.todos = [];
+  const maxPos = data.todos.reduce((m, t) => Math.max(m, t.position ?? 0), -1);
+  const todo = { id: nextId(data, 'todos'), title: title.trim(), completed: false, completed_at: null, position: maxPos + 1, created_at: now() };
+  data.todos.push(todo);
+  save(data);
+  res.status(201).json({ id: todo.id });
+});
+
+app.patch('/api/todos/reorder', (req, res) => {
+  const { order } = req.body;
+  if (!Array.isArray(order)) return res.status(400).json({ error: 'order required' });
+  const data = load();
+  for (const { id, position } of order) {
+    const t = (data.todos || []).find(t => t.id === Number(id));
+    if (t) t.position = position;
+  }
+  save(data);
+  res.json({ ok: true });
+});
+
+app.patch('/api/todos/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const data = load();
+  const todo = (data.todos || []).find(t => t.id === id);
+  if (!todo) return res.status(404).json({ error: 'not found' });
+  if (req.body.title !== undefined) {
+    if (!req.body.title.trim()) return res.status(400).json({ error: 'title required' });
+    todo.title = req.body.title.trim();
+  }
+  if (req.body.completed !== undefined) {
+    todo.completed = !!req.body.completed;
+    todo.completed_at = todo.completed ? now() : null;
+  }
+  save(data);
+  res.json({ ok: true });
+});
+
+app.delete('/api/todos/completed', (req, res) => {
+  const data = load();
+  data.todos = (data.todos || []).filter(t => !t.completed);
+  save(data);
+  res.json({ ok: true });
+});
+
+app.delete('/api/todos/:id', (req, res) => {
+  const data = load();
+  data.todos = (data.todos || []).filter(t => t.id !== Number(req.params.id));
   save(data);
   res.json({ ok: true });
 });

@@ -1356,6 +1356,37 @@ body.light .vacation-date-input { color-scheme: light; }
 .vacation-add-btn:hover { border-color: var(--accent); }
 .danger-btn:hover { border-color: var(--danger) !important; color: var(--danger); }
 
+/* ── Todos ────────────────────────────────────── */
+
+.todo-completed-sep {
+  list-style: none;
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  padding: 0.9rem 0 0.35rem;
+}
+
+.drag-handle-spacer {
+  width: 0.9rem;
+  flex-shrink: 0;
+}
+
+.clear-completed-btn {
+  display: inline-block;
+  margin: 0.25rem 0 0.75rem;
+  padding: 0.3rem 0.7rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.clear-completed-btn:hover { border-color: var(--danger); color: var(--danger); }
+
 /* ── Mood ─────────────────────────────────────── */
 
 .overview-mood-row {

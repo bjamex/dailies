@@ -34,6 +34,13 @@ const api = {
     body: JSON.stringify({ order }),
   }),
 
+  getTodos:        () => fetch('/api/todos').then(r => r.json()),
+  createTodo:      (title) => fetch('/api/todos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) }).then(r => r.json()),
+  updateTodo:      (id, patch) => fetch(`/api/todos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }),
+  deleteTodo:      (id) => fetch(`/api/todos/${id}`, { method: 'DELETE' }),
+  reorderTodos:    (order) => fetch('/api/todos/reorder', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order }) }),
+  clearCompleted:  () => fetch('/api/todos/completed', { method: 'DELETE' }),
+
   getMood:  () => fetch('/api/mood').then(r => r.json()),
   setMood:  (date, value) => fetch('/api/mood', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -439,7 +446,9 @@ function makeTaskItem(task) {
   return li;
 }
 
-function initDrag(ul) {
+function initDrag(ul, onReorder) {
+  const defaultReorder = async (order) => { await api.reorderTasks(order); refreshOverview(); };
+  const reorder = onReorder || defaultReorder;
   let dragSrc = null;
 
   // ── Desktop (mouse) drag ──────────────────────────
@@ -471,10 +480,9 @@ function initDrag(ul) {
   ul.addEventListener('drop', async (e) => {
     e.preventDefault();
     ul.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-    const items = [...ul.querySelectorAll('.task-item')];
+    const items = [...ul.querySelectorAll('.task-item:not(.todo-completed-sep)')];
     const order = items.map((li, i) => ({ id: Number(li.dataset.id), position: i }));
-    await api.reorderTasks(order);
-    refreshOverview();
+    await reorder(order);
   });
 
   // ── Touch (mobile) drag ───────────────────────────
@@ -510,10 +518,9 @@ function initDrag(ul) {
       touchEl.style.opacity = '';
     }
     ul.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-    const items = [...ul.querySelectorAll('.task-item')];
+    const items = [...ul.querySelectorAll('.task-item:not(.todo-completed-sep)')];
     const order = items.map((li, i) => ({ id: Number(li.dataset.id), position: i }));
-    await api.reorderTasks(order);
-    refreshOverview();
+    await reorder(order);
     touchEl = null;
   }
 
@@ -806,6 +813,81 @@ async function loadStats() {
   });
 }
 
+// ── Todos ─────────────────────────────────────────────────────────────────
+
+function makeTodoItem(todo) {
+  const li = document.createElement('li');
+  li.className = `task-item${todo.completed ? ' done' : ''}`;
+  li.dataset.id = todo.id;
+  li.draggable = !todo.completed;
+  li.innerHTML = `
+    ${!todo.completed ? '<span class="drag-handle" aria-hidden="true">⠿</span>' : '<span class="drag-handle-spacer"></span>'}
+    <input type="checkbox" ${todo.completed ? 'checked' : ''} aria-label="${esc(todo.title)}">
+    <span class="task-label-wrap"><span class="task-label">${esc(todo.title)}</span></span>
+    <button class="delete-btn" title="Delete" data-action="delete">✕</button>
+  `;
+  return li;
+}
+
+async function loadTodos() {
+  const listEl = document.getElementById('tasks-list');
+  const clearBtn = document.getElementById('todos-clear-btn');
+  const todos = await api.getTodos();
+
+  const incomplete = todos.filter(t => !t.completed);
+  const completed  = todos.filter(t => t.completed);
+
+  clearBtn.hidden = completed.length === 0;
+  if (!clearBtn.hidden) clearBtn.textContent = `Clear completed (${completed.length})`;
+
+  listEl.innerHTML = '';
+  if (!incomplete.length && !completed.length) {
+    listEl.innerHTML = '<li class="empty-state">Nothing here — add a task below.</li>';
+    return;
+  }
+
+  incomplete.forEach(t => listEl.appendChild(makeTodoItem(t)));
+  initDrag(listEl, async (order) => api.reorderTodos(order));
+
+  if (completed.length) {
+    const sep = document.createElement('li');
+    sep.className = 'todo-completed-sep';
+    sep.textContent = `Completed (${completed.length})`;
+    listEl.appendChild(sep);
+    completed.forEach(t => listEl.appendChild(makeTodoItem(t)));
+  }
+}
+
+document.getElementById('tasks-list').addEventListener('click', async (e) => {
+  const li = e.target.closest('.task-item');
+  if (!li) return;
+  const id = li.dataset.id;
+  if (e.target.matches('input[type="checkbox"]')) {
+    const checked = e.target.checked;
+    await api.updateTodo(id, { completed: checked });
+    loadTodos();
+  } else if (e.target.dataset.action === 'delete') {
+    li.remove();
+    await api.deleteTodo(id);
+    loadTodos();
+  }
+});
+
+document.getElementById('tasks-add-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('tasks-input');
+  const title = input.value.trim();
+  if (!title) return;
+  input.value = '';
+  await api.createTodo(title);
+  loadTodos();
+});
+
+document.getElementById('todos-clear-btn').addEventListener('click', async () => {
+  await api.clearCompleted();
+  loadTodos();
+});
+
 // ── Journal browser ───────────────────────────────────────────────────────
 
 function wireMoodSelector(today, moodData) {
@@ -932,6 +1014,7 @@ function switchTab(name) {
     else if (name === 'daily')     loadTasks('daily');
     else if (name === 'weekly')    loadTasks('weekly');
     else if (name === 'monthly')   loadTasks('monthly');
+    else if (name === 'tasks')     loadTodos();
     else if (name === 'stats')     loadStats();
     else if (name === 'journal')   loadJournalBrowser();
     else if (name === 'reminders') loadReminders();
@@ -1095,7 +1178,7 @@ function focusAddInput() {
   input?.focus();
 }
 
-const TAB_KEYS = { o: 'overview', d: 'daily', w: 'weekly', m: 'monthly', s: 'stats', j: 'journal', r: 'reminders' };
+const TAB_KEYS = { o: 'overview', d: 'daily', w: 'weekly', m: 'monthly', t: 'tasks', s: 'stats', j: 'journal', r: 'reminders' };
 
 document.addEventListener('keydown', (e) => {
   const tag = document.activeElement?.tagName;

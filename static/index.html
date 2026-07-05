@@ -20,6 +20,7 @@
       <button class="tab"        data-tab="daily"      role="tab">Daily <span class="tab-badge" id="badge-daily"></span></button>
       <button class="tab"        data-tab="weekly"     role="tab">Weekly <span class="tab-badge" id="badge-weekly"></span></button>
       <button class="tab"        data-tab="monthly"    role="tab">Monthly <span class="tab-badge" id="badge-monthly"></span></button>
+      <button class="tab"        data-tab="tasks"      role="tab">Tasks</button>
       <button class="tab"        data-tab="stats"      role="tab">Stats</button>
       <button class="tab"        data-tab="journal"    role="tab">Journal</button>
       <button class="tab"        data-tab="reminders"  role="tab">Reminders</button>
@@ -65,6 +66,16 @@
       <ul class="task-list" id="monthly-list"></ul>
       <form class="add-form" id="monthly-add-form">
         <input type="text" placeholder="Add a monthly task…" id="monthly-input" autocomplete="off">
+        <button type="submit">Add</button>
+      </form>
+    </section>
+
+    <!-- Tasks (one-off) -->
+    <section id="tasks" class="tab-panel" role="tabpanel" hidden>
+      <ul class="task-list" id="tasks-list"></ul>
+      <button class="clear-completed-btn" id="todos-clear-btn" hidden>Clear completed</button>
+      <form class="add-form" id="tasks-add-form">
+        <input type="text" placeholder="Add a task…" id="tasks-input" autocomplete="off">
         <button type="submit">Add</button>
       </form>
     </section>
@@ -170,6 +181,7 @@
         <kbd>d</kbd><span>Daily</span>
         <kbd>w</kbd><span>Weekly</span>
         <kbd>m</kbd><span>Monthly</span>
+        <kbd>t</kbd><span>Tasks</span>
         <kbd>s</kbd><span>Stats</span>
         <kbd>j</kbd><span>Journal</span>
         <kbd>r</kbd><span>Reminders</span>
