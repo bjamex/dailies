@@ -151,12 +151,15 @@ function buildMoodChart(moodData) {
   return html;
 }
 
+let serverToday = null;
+
 // ── Overview ──────────────────────────────────────────────────────────────
 
 async function loadOverview() {
   const el = document.getElementById('overview-content');
   el.innerHTML = '<p class="empty-state">Loading…</p>';
   const [s, settings, { quote }, moodData] = await Promise.all([api.getSummary(), api.getSettings(), api.getQuote(), api.getMood()]);
+  serverToday = s.today;
   updateBadge('daily',   s.daily.completed,   s.daily.total);
   updateBadge('weekly',  s.weekly.completed,  s.weekly.total);
   updateBadge('monthly', s.monthly.completed, s.monthly.total);
@@ -270,6 +273,15 @@ async function loadOverview() {
             ${settings.pin ? `<button class="vacation-add-btn" id="change-pin-btn">Change</button><button class="vacation-add-btn danger-btn" id="remove-pin-btn">Remove</button>` : `<button class="vacation-add-btn" id="set-pin-btn">Set PIN</button>`}
           </div>
         </div>
+        <div class="settings-divider"></div>
+        <div class="settings-row-label">Timezone</div>
+        <div class="settings-row">
+          <span style="color:var(--text-muted);font-size:.85em">${settings.timezone || 'Server default (UTC in Docker)'}</span>
+          <div style="display:flex;gap:.4rem">
+            <button class="vacation-add-btn" id="tz-detect-btn">Use my timezone</button>
+            ${settings.timezone ? `<button class="vacation-add-btn" id="tz-clear-btn">Reset</button>` : ''}
+          </div>
+        </div>
       </div>
     </details>
   `;
@@ -344,6 +356,18 @@ async function loadOverview() {
   document.getElementById('remove-pin-btn')?.addEventListener('click', async () => {
     await api.saveSettings({ pin: null });
     sessionStorage.removeItem('pin-unlocked');
+    loadOverview();
+  });
+
+  document.getElementById('tz-detect-btn')?.addEventListener('click', async () => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    await api.saveSettings({ timezone: tz });
+    loaded.delete('daily'); loaded.delete('weekly'); loaded.delete('monthly');
+    loadOverview();
+  });
+  document.getElementById('tz-clear-btn')?.addEventListener('click', async () => {
+    await api.saveSettings({ timezone: null });
+    loaded.delete('daily'); loaded.delete('weekly'); loaded.delete('monthly');
     loadOverview();
   });
 
@@ -929,7 +953,7 @@ async function loadJournalBrowser() {
   const el = document.getElementById('journal-content');
   el.innerHTML = '<p class="empty-state">Loading…</p>';
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = serverToday || new Date().toISOString().split('T')[0];
   const [entries, moodData] = await Promise.all([api.listJournal(), api.getMood()]);
   const todayMood = moodData[today] ?? 0;
 
@@ -1578,6 +1602,19 @@ async function openPinSetModal(isChange) {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
+
+// ── Auto-refresh when date changes ───────────────────────────────────────
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !serverToday) return;
+  api.getSummary().then(s => {
+    if (s.today !== serverToday) {
+      loaded.clear();
+      const activeTab = document.querySelector('.tab.active')?.dataset.tab || 'overview';
+      switchTab(activeTab);
+    }
+  }).catch(() => {});
+});
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 initPinLock().then(() => switchTab('overview'));

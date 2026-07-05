@@ -24,9 +24,10 @@ function load() {
     if (!('resetHour'    in data.settings)) data.settings.resetHour    = 0;
     if (!('vacationDays' in data.settings)) data.settings.vacationDays = [];
     if (!('pin'          in data.settings)) data.settings.pin          = null;
+    if (!('timezone'     in data.settings)) data.settings.timezone     = null;
     return data;
   } catch {
-    return { tasks: [], completions: [], reminders: [], journal: [], todos: [], mood: {}, settings: { resetHour: 0, vacationDays: [], pin: null }, _seq: { tasks: 0, reminders: 0 } };
+    return { tasks: [], completions: [], reminders: [], journal: [], todos: [], mood: {}, settings: { resetHour: 0, vacationDays: [], pin: null, timezone: null }, _seq: { tasks: 0, reminders: 0 } };
   }
 }
 
@@ -44,8 +45,23 @@ function now() {
   return new Date().toISOString().replace('T', ' ').substring(0, 19);
 }
 
-function getDailyPeriod(d = new Date(), resetHour = 0) {
-  // If current hour is before resetHour, treat it as the previous calendar day
+function getDailyPeriod(d = new Date(), resetHour = 0, timezone = null) {
+  if (timezone) {
+    try {
+      const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', hourCycle: 'h23',
+      });
+      const parts = Object.fromEntries(fmt.formatToParts(d).map(p => [p.type, p.value]));
+      const hour = Number(parts.hour) % 24;
+      if (resetHour > 0 && hour < resetHour) {
+        const prev = new Date(d.getTime() - 86400000);
+        const pp = Object.fromEntries(fmt.formatToParts(prev).map(p => [p.type, p.value]));
+        return `${pp.year}-${pp.month}-${pp.day}`;
+      }
+      return `${parts.year}-${parts.month}-${parts.day}`;
+    } catch { /* fall through to system time */ }
+  }
   const shifted = new Date(d);
   if (resetHour > 0 && shifted.getHours() < resetHour) {
     shifted.setDate(shifted.getDate() - 1);
@@ -53,8 +69,17 @@ function getDailyPeriod(d = new Date(), resetHour = 0) {
   return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}-${String(shifted.getDate()).padStart(2, '0')}`;
 }
 
-function getWeeklyPeriod() {
-  const d = new Date();
+function getWeeklyPeriod(timezone = null) {
+  let d;
+  if (timezone) {
+    try {
+      const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' });
+      const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+      d = new Date(`${parts.year}-${parts.month}-${parts.day}T12:00:00`);
+    } catch { d = new Date(); }
+  } else {
+    d = new Date();
+  }
   const day = d.getDay() || 7;
   d.setDate(d.getDate() + 4 - day);
   const yearStart = new Date(d.getFullYear(), 0, 1);
@@ -62,33 +87,40 @@ function getWeeklyPeriod() {
   return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-function getMonthlyPeriod() {
+function getMonthlyPeriod(timezone = null) {
+  if (timezone) {
+    try {
+      const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit' });
+      const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+      return `${parts.year}-${parts.month}`;
+    } catch { /* fall through */ }
+  }
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function getPeriod(type, resetHour = 0) {
-  if (type === 'daily')   return getDailyPeriod(new Date(), resetHour);
-  if (type === 'weekly')  return getWeeklyPeriod();
-  if (type === 'monthly') return getMonthlyPeriod();
+function getPeriod(type, resetHour = 0, timezone = null) {
+  if (type === 'daily')   return getDailyPeriod(new Date(), resetHour, timezone);
+  if (type === 'weekly')  return getWeeklyPeriod(timezone);
+  if (type === 'monthly') return getMonthlyPeriod(timezone);
 }
 
-function getDateOffset(n, resetHour = 0) {
+function getDateOffset(n, resetHour = 0, timezone = null) {
   const d = new Date();
   d.setDate(d.getDate() + n);
-  return getDailyPeriod(d, resetHour);
+  return getDailyPeriod(d, resetHour, timezone);
 }
 
-function getStreakForTask(taskId, completions, resetHour = 0, vacationDays = []) {
+function getStreakForTask(taskId, completions, resetHour = 0, vacationDays = [], timezone = null) {
   const vacSet = new Set(vacationDays);
-  const today = getDailyPeriod(new Date(), resetHour);
+  const today = getDailyPeriod(new Date(), resetHour, timezone);
   const periods = new Set(completions.filter(c => c.task_id === taskId).map(c => c.period));
   const isDone = (p) => periods.has(p) || vacSet.has(p);
-  const start = isDone(today) ? today : getDateOffset(-1, resetHour);
+  const start = isDone(today) ? today : getDateOffset(-1, resetHour, timezone);
   if (!isDone(start)) return 0;
   let streak = 0;
   const d = new Date(start + 'T12:00:00');
-  while (isDone(getDailyPeriod(d, 0))) {
+  while (isDone(getDailyPeriod(d, 0, timezone))) {
     streak++;
     d.setDate(d.getDate() - 1);
   }
@@ -109,7 +141,7 @@ function getBestStreak(taskId, completions) {
   return best;
 }
 
-function getCompletionRate(taskId, completions, createdAt, days = 90) {
+function getCompletionRate(taskId, completions, createdAt, days = 90, timezone = null) {
   const periods = new Set(completions.filter(c => c.task_id === taskId).map(c => c.period));
   const created = new Date(createdAt.replace(' ', 'T'));
   let total = 0, completed = 0;
@@ -118,7 +150,7 @@ function getCompletionRate(taskId, completions, createdAt, days = 90) {
     d.setDate(d.getDate() - i);
     if (d < created) break;
     total++;
-    if (periods.has(getDailyPeriod(d))) completed++;
+    if (periods.has(getDailyPeriod(d, 0, timezone))) completed++;
   }
   return total ? Math.round((completed / total) * 100) : 0;
 }
@@ -137,7 +169,8 @@ app.get('/api/tasks', (req, res) => {
   if (!VALID_TYPES.has(type)) return res.status(400).json({ error: 'invalid type' });
   const data = load();
   const rh = data.settings.resetHour || 0;
-  const period = getPeriod(type, rh);
+  const tz = data.settings.timezone || null;
+  const period = getPeriod(type, rh, tz);
   const tasks = data.tasks
     .filter(t => t.type === type)
     .sort((a, b) => {
@@ -146,7 +179,7 @@ app.get('/api/tasks', (req, res) => {
     })
     .map(t => {
       const c = data.completions.find(c => c.task_id === t.id && c.period === period);
-      const streak = type === 'daily' && !t.paused ? getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays) : null;
+      const streak = type === 'daily' && !t.paused ? getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays, tz) : null;
       const value = t.kind === 'count' ? (c?.value ?? 0) : null;
       const completed = t.kind === 'count' ? (t.target ? (value >= t.target) : value > 0) : !!c;
       return { ...t, completed, completed_at: c?.completed_at ?? null, streak, value };
@@ -228,7 +261,7 @@ app.post('/api/tasks/:id/complete', (req, res) => {
   const data = load();
   const task = data.tasks.find(t => t.id === id);
   if (!task) return res.status(404).json({ error: 'not found' });
-  const period = getPeriod(task.type, data.settings.resetHour || 0);
+  const period = getPeriod(task.type, data.settings.resetHour || 0, data.settings.timezone || null);
   if (!data.completions.find(c => c.task_id === id && c.period === period)) {
     data.completions.push({ task_id: id, period, completed_at: now() });
   }
@@ -241,7 +274,7 @@ app.delete('/api/tasks/:id/complete', (req, res) => {
   const data = load();
   const task = data.tasks.find(t => t.id === id);
   if (!task) return res.status(404).json({ error: 'not found' });
-  const period = getPeriod(task.type, data.settings.resetHour || 0);
+  const period = getPeriod(task.type, data.settings.resetHour || 0, data.settings.timezone || null);
   data.completions = data.completions.filter(c => !(c.task_id === id && c.period === period));
   save(data);
   res.json({ ok: true });
@@ -254,7 +287,7 @@ app.post('/api/tasks/:id/log', (req, res) => {
   const data = load();
   const task = data.tasks.find(t => t.id === id);
   if (!task || task.kind !== 'count') return res.status(404).json({ error: 'not found' });
-  const period = getPeriod(task.type, data.settings.resetHour || 0);
+  const period = getPeriod(task.type, data.settings.resetHour || 0, data.settings.timezone || null);
   const idx = data.completions.findIndex(c => c.task_id === id && c.period === period);
   if (value === 0) {
     if (idx >= 0) data.completions.splice(idx, 1);
@@ -275,10 +308,11 @@ app.get('/api/tasks/:id/history', (req, res) => {
   const data = load();
   const task = data.tasks.find(t => t.id === id);
   if (!task) return res.status(404).json({ error: 'not found' });
+  const tz = data.settings.timezone || null;
   const periods = new Set(data.completions.filter(c => c.task_id === id).map(c => c.period));
   const history = [];
   for (let i = days - 1; i >= 0; i--) {
-    const period = getDateOffset(-i);
+    const period = getDateOffset(-i, 0, tz);
     history.push({ period, completed: periods.has(period) });
   }
   res.json({ task: { id: task.id, title: task.title }, history });
@@ -289,6 +323,7 @@ app.get('/api/tasks/:id/history', (req, res) => {
 app.get('/api/stats', (req, res) => {
   const data = load();
   const rh = data.settings.resetHour || 0;
+  const tz = data.settings.timezone || null;
   const days = 90;
   const dailyTasks = data.tasks.filter(t => t.type === 'daily');
 
@@ -300,7 +335,7 @@ app.get('/api/stats', (req, res) => {
   for (let i = 0; i < days; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    const period = getDailyPeriod(d);
+    const period = getDailyPeriod(d, 0, tz);
     const dayIdx = d.getDay();
     for (const task of dailyTasks) {
       if (new Date(task.created_at.replace(' ', 'T')) > d) continue;
@@ -315,9 +350,9 @@ app.get('/api/stats', (req, res) => {
     title: t.title,
     paused: t.paused,
     streak_goal: t.streak_goal,
-    currentStreak: t.paused ? null : getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays),
+    currentStreak: t.paused ? null : getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays, tz),
     bestStreak: getBestStreak(t.id, data.completions),
-    rate: getCompletionRate(t.id, data.completions, t.created_at, days),
+    rate: getCompletionRate(t.id, data.completions, t.created_at, days, tz),
   })).sort((a, b) => (b.currentStreak ?? 0) - (a.currentStreak ?? 0));
 
   res.json({
@@ -361,6 +396,14 @@ app.patch('/api/settings', (req, res) => {
   }
   if (req.body.pin !== undefined) {
     data.settings.pin = req.body.pin || null;
+  }
+  if (req.body.timezone !== undefined) {
+    const tz = req.body.timezone || null;
+    if (tz) {
+      try { new Intl.DateTimeFormat('en', { timeZone: tz }); }
+      catch { return res.status(400).json({ error: 'invalid timezone' }); }
+    }
+    data.settings.timezone = tz;
   }
   save(data);
   res.json({ ok: true });
@@ -482,9 +525,10 @@ app.patch('/api/mood', (req, res) => {
 app.get('/api/summary', (req, res) => {
   const data = load();
   const rh = data.settings.resetHour || 0;
-  const dailyPeriod   = getDailyPeriod(new Date(), rh);
-  const weeklyPeriod  = getWeeklyPeriod();
-  const monthlyPeriod = getMonthlyPeriod();
+  const tz = data.settings.timezone || null;
+  const dailyPeriod   = getDailyPeriod(new Date(), rh, tz);
+  const weeklyPeriod  = getWeeklyPeriod(tz);
+  const monthlyPeriod = getMonthlyPeriod(tz);
 
   const byType = (type) => data.tasks.filter(t => t.type === type);
   const completedIds = (period) => new Set(
@@ -507,11 +551,11 @@ app.get('/api/summary', (req, res) => {
       const go = { morning: 0, afternoon: 1, null: 2 };
       return (go[a.group] ?? 2) - (go[b.group] ?? 2) || a.position - b.position;
     })
-    .map(t => ({ id: t.id, title: t.title, group: t.group, streak: getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays) }));
+    .map(t => ({ id: t.id, title: t.title, group: t.group, streak: getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays, tz) }));
 
   const topStreaks = dailyTasks
     .filter(t => !t.paused)
-    .map(t => ({ id: t.id, title: t.title, streak: getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays), streak_goal: t.streak_goal }))
+    .map(t => ({ id: t.id, title: t.title, streak: getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays, tz), streak_goal: t.streak_goal }))
     .filter(t => t.streak > 1)
     .sort((a, b) => b.streak - a.streak)
     .slice(0, 5);
