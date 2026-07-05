@@ -523,6 +523,11 @@ app.get('/api/summary', (req, res) => {
 
   const todayEntry = data.journal.find(j => j.date === dailyPeriod);
 
+  const incompleteTodos = (data.todos || [])
+    .filter(t => !t.completed)
+    .sort((a, b) => a.position - b.position || a.id - b.id)
+    .map(t => ({ id: t.id, title: t.title }));
+
   res.json({
     mood: (data.mood || {})[dailyPeriod] ?? null,
     date: `${DAY_NAMES[d.getDay()]}, ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`,
@@ -532,6 +537,7 @@ app.get('/api/summary', (req, res) => {
     weekly:  { total: weeklyTasks.length,  completed: weeklyDone.size },
     monthly: { total: monthlyTasks.length, completed: monthlyDone.size },
     incompleteDailies,
+    incompleteTodos,
     topStreaks,
     reminders: [...data.reminders].sort((a, b) => a.position - b.position || a.id - b.id),
     journalContent: todayEntry?.content ?? '',

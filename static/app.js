@@ -226,6 +226,13 @@ async function loadOverview() {
 
     ${todoHtml ? `<div class="overview-section"><div class="overview-label">Still to do today</div>${todoHtml}</div>` : ''}
 
+    ${s.incompleteTodos.length ? `<div class="overview-section"><div class="overview-label">Tasks</div>
+      <ul class="overview-todo-list" id="overview-todos">${s.incompleteTodos.map(t => `
+        <li class="overview-todo-item" data-id="${t.id}">
+          <input type="checkbox" aria-label="Complete ${esc(t.title)}">
+          <span class="todo-title">${esc(t.title)}</span>
+        </li>`).join('')}</ul></div>` : ''}
+
     ${streakHtml ? `<div class="overview-section"><div class="overview-label">Streaks</div>${streakHtml}</div>` : ''}
 
     ${remindersHtml ? `<div class="overview-section"><div class="overview-label">Reminders</div><div class="overview-reminders">${remindersHtml}</div></div>` : ''}
@@ -340,7 +347,7 @@ async function loadOverview() {
     loadOverview();
   });
 
-  // Checkable todo items
+  // Checkable daily todo items
   document.getElementById('overview-todo')?.addEventListener('click', async (e) => {
     const li = e.target.closest('.overview-todo-item');
     if (!li) return;
@@ -350,8 +357,21 @@ async function loadOverview() {
     cb.checked = true;
     li.classList.add('done');
     await api.completeTask(id);
-    // brief delay so the user sees the checkmark, then refresh
     setTimeout(() => loadOverview(), 500);
+  });
+
+  // Checkable one-off task items
+  document.getElementById('overview-todos')?.addEventListener('click', async (e) => {
+    const li = e.target.closest('.overview-todo-item');
+    if (!li) return;
+    const cb = li.querySelector('input[type="checkbox"]');
+    if (!cb) return;
+    const id = li.dataset.id;
+    cb.checked = true;
+    li.classList.add('done');
+    await api.updateTodo(id, { completed: true });
+    if (loaded.has('tasks')) loaded.delete('tasks');
+    setTimeout(() => loadOverview(), 400);
   });
 }
 
