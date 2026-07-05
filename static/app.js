@@ -34,6 +34,12 @@ const api = {
     body: JSON.stringify({ order }),
   }),
 
+  getMood:  () => fetch('/api/mood').then(r => r.json()),
+  setMood:  (date, value) => fetch('/api/mood', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, value }),
+  }),
+
   getQuote:        () => fetch('/api/quote').then(r => r.json()),
   getSettings:     () => fetch('/api/settings').then(r => r.json()),
   saveSettings:    (patch) => fetch('/api/settings', {
@@ -78,12 +84,75 @@ function autoResize(ta) {
 const GROUP_ORDER  = ['morning', 'afternoon', null];
 const GROUP_LABELS = { morning: 'Morning', afternoon: 'Afternoon', null: 'Anytime' };
 
+function updateBadge(type, done, total) {
+  const el = document.getElementById(`badge-${type}`);
+  if (!el) return;
+  el.textContent = total > 0 ? `${done}/${total}` : '';
+}
+
+function refreshBadge(type) {
+  const sel = type === 'daily' ? '#daily-groups' : `#${type}-list`;
+  const c = document.querySelector(sel);
+  if (!c) return;
+  const all  = c.querySelectorAll('.task-item:not(.paused)');
+  const done = c.querySelectorAll('.task-item:not(.paused).done');
+  updateBadge(type, done.length, all.length);
+}
+
+function addSwipeHandler(li, onRight) {
+  let startX = 0, startY = 0, active = false;
+  li.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    active = false;
+  }, { passive: true });
+  li.addEventListener('touchmove', e => {
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if (!active && Math.abs(dy) > Math.abs(dx)) return;
+    if (dx < 8) return;
+    active = true;
+    li.classList.add('swiping-right');
+  }, { passive: true });
+  li.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - startX;
+    li.classList.remove('swiping-right');
+    if (active && dx > 80) onRight();
+    active = false;
+  }, { passive: true });
+  li.addEventListener('touchcancel', () => {
+    li.classList.remove('swiping-right');
+    active = false;
+  }, { passive: true });
+}
+
+const MOODS     = ['😞', '😕', '😐', '🙂', '😄'];
+const MOOD_COLORS = ['', '#b86b5a', '#c4956a', '#b89a60', '#7a9e78', '#5a8e6a'];
+
+function buildMoodChart(moodData) {
+  const today = new Date();
+  let html = '';
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const v = moodData[date] ?? 0;
+    const color = v ? MOOD_COLORS[v] : 'var(--surface-2)';
+    const title = v ? `${date} · ${MOODS[v-1]}` : date;
+    html += `<div class="mood-dot" style="background:${color}" title="${title}"></div>`;
+  }
+  return html;
+}
+
 // ── Overview ──────────────────────────────────────────────────────────────
 
 async function loadOverview() {
   const el = document.getElementById('overview-content');
   el.innerHTML = '<p class="empty-state">Loading…</p>';
-  const [s, settings, { quote }] = await Promise.all([api.getSummary(), api.getSettings(), api.getQuote()]);
+  const [s, settings, { quote }, moodData] = await Promise.all([api.getSummary(), api.getSettings(), api.getQuote(), api.getMood()]);
+  updateBadge('daily',   s.daily.completed,   s.daily.total);
+  updateBadge('weekly',  s.weekly.completed,  s.weekly.total);
+  updateBadge('monthly', s.monthly.completed, s.monthly.total);
 
   const pct = (done, total) => total ? Math.round((done / total) * 100) : 0;
 
@@ -127,10 +196,16 @@ async function loadOverview() {
   const remindersHtml = s.reminders.length
     ? s.reminders.map(r => `<div class="overview-reminder">${esc(r.content)}</div>`).join('') : '';
 
+  const todayMood = moodData[s.today] ?? 0;
+  const moodRowHtml = `<div class="overview-mood-row" id="overview-mood-row">
+    ${MOODS.map((em, i) => `<button class="overview-mood-btn${todayMood === i+1 ? ' active' : ''}" data-mood="${i+1}" aria-label="Mood ${i+1} of 5">${em}</button>`).join('')}
+  </div>`;
+
   el.innerHTML = `
     <div class="overview-header">
       <div class="overview-date">${esc(s.date)}</div>
       <div class="overview-week">${esc(s.week)}</div>
+      ${moodRowHtml}
       ${quote ? `<div class="overview-quote">${esc(quote)}</div>` : ''}
     </div>
 
@@ -200,6 +275,18 @@ async function loadOverview() {
       api.saveJournal(s.today, ta.value);
     });
   }
+
+  // Mood row
+  document.getElementById('overview-mood-row')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.overview-mood-btn');
+    if (!btn) return;
+    const value = Number(btn.dataset.mood);
+    await api.setMood(s.today, value);
+    document.querySelectorAll('.overview-mood-btn').forEach(b => {
+      b.classList.toggle('active', Number(b.dataset.mood) === value);
+    });
+    if (loaded.has('journal')) loaded.delete('journal');
+  });
 
   // Settings — reset hour
   document.getElementById('reset-hour-select')?.addEventListener('change', async (e) => {
@@ -341,6 +428,14 @@ function makeTaskItem(task) {
     if (!open) { autoResize(ta); ta.focus(); }
   });
 
+  // Swipe right to toggle complete (mobile)
+  if (!task.paused && task.kind === 'check') {
+    addSwipeHandler(li, () => {
+      const cb = li.querySelector('input[type="checkbox"]:not([disabled])');
+      if (cb) cb.click();
+    });
+  }
+
   return li;
 }
 
@@ -433,6 +528,8 @@ async function loadTasks(type) {
   } else {
     renderFlatTasks(tasks, document.getElementById(`${type}-list`));
   }
+  const nonPaused = tasks.filter(t => !t.paused);
+  updateBadge(type, nonPaused.filter(t => t.completed).length, nonPaused.length);
 }
 
 // ── Reminders ─────────────────────────────────────────────────────────────
@@ -653,13 +750,41 @@ async function loadStats() {
 
 // ── Journal browser ───────────────────────────────────────────────────────
 
+function wireMoodSelector(today, moodData) {
+  document.getElementById('mood-selector')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.mood-btn');
+    if (!btn) return;
+    const value = Number(btn.dataset.value);
+    await api.setMood(today, value);
+    moodData[today] = value;
+    document.querySelectorAll('#mood-selector .mood-btn').forEach(b => {
+      b.classList.toggle('active', Number(b.dataset.value) === value);
+    });
+    document.getElementById('mood-chart').innerHTML = buildMoodChart(moodData);
+    if (loaded.has('overview')) loadOverview();
+  });
+}
+
 async function loadJournalBrowser() {
   const el = document.getElementById('journal-content');
   el.innerHTML = '<p class="empty-state">Loading…</p>';
-  const entries = await api.listJournal();
+
+  const today = new Date().toISOString().split('T')[0];
+  const [entries, moodData] = await Promise.all([api.listJournal(), api.getMood()]);
+  const todayMood = moodData[today] ?? 0;
+
+  const moodSectionHtml = `
+    <div class="mood-section">
+      <div class="overview-label" style="margin-bottom:.6rem">How are you feeling today?</div>
+      <div class="mood-selector" id="mood-selector">
+        ${MOODS.map((em, i) => `<button class="mood-btn${todayMood === i+1 ? ' active' : ''}" data-value="${i+1}" aria-label="Mood ${i+1} of 5">${em}</button>`).join('')}
+      </div>
+      <div class="mood-chart" id="mood-chart">${buildMoodChart(moodData)}</div>
+    </div>`;
 
   if (!entries.length) {
-    el.innerHTML = '<p class="empty-state">No journal entries yet. Write one on the Overview tab.</p>';
+    el.innerHTML = moodSectionHtml + '<p class="empty-state">No journal entries yet. Write one on the Overview tab.</p>';
+    wireMoodSelector(today, moodData);
     return;
   }
 
@@ -672,7 +797,7 @@ async function loadJournalBrowser() {
 
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-  el.innerHTML = Object.keys(byMonth).sort((a, b) => b.localeCompare(a)).map(month => {
+  el.innerHTML = moodSectionHtml + Object.keys(byMonth).sort((a, b) => b.localeCompare(a)).map(month => {
     const [y, m] = month.split('-');
     const label = `${MONTH_NAMES[Number(m) - 1]} ${y}`;
     const rows = byMonth[month].map(e => {
@@ -691,6 +816,8 @@ async function loadJournalBrowser() {
       ${rows}
     </div>`;
   }).join('');
+
+  wireMoodSelector(today, moodData);
 
   el.addEventListener('click', async (e) => {
     const header = e.target.closest('.journal-entry-header');
@@ -776,6 +903,7 @@ function taskListHandler(type) {
         else         await api.uncompleteTask(id);
         if (checked) checkAllDone();
         refreshOverview();
+        refreshBadge(type);
       } catch {
         e.target.checked = !checked;
         li.classList.toggle('done', !checked);
@@ -794,6 +922,7 @@ function taskListHandler(type) {
       await api.logTask(id, next);
       if (nowDone) checkAllDone();
       refreshOverview();
+      refreshBadge(type);
 
     } else if (action === 'edit') {
       openTaskEditModal(li);
@@ -808,6 +937,7 @@ function taskListHandler(type) {
       li.remove();
       await api.deleteTask(id);
       refreshOverview();
+      refreshBadge(type);
       if (loaded.has('stats')) { loaded.delete('stats'); }
     }
   };
@@ -1102,7 +1232,7 @@ function celebrate() {
   const el = document.createElement('div');
   el.className = 'confetti-container';
   document.body.appendChild(el);
-  const colors = ['#7c84f8','#f97316','#22c55e','#f59e0b','#06b6d4','#ec4899'];
+  const colors = ['#8a9e80','#b89a60','#c4826a','#9eb8ae','#d4a878','#7a9880'];
   for (let i = 0; i < 70; i++) {
     const p = document.createElement('div');
     p.className = 'confetti-piece';

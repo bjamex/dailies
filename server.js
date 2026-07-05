@@ -18,13 +18,14 @@ function load() {
       if (!('notify_time' in t))  t.notify_time = null;
     }
     if (!data.journal)  data.journal = [];
+    if (!data.mood)     data.mood = {};
     if (!data.settings) data.settings = {};
     if (!('resetHour'    in data.settings)) data.settings.resetHour    = 0;
     if (!('vacationDays' in data.settings)) data.settings.vacationDays = [];
     if (!('pin'          in data.settings)) data.settings.pin          = null;
     return data;
   } catch {
-    return { tasks: [], completions: [], reminders: [], journal: [], settings: { resetHour: 0, vacationDays: [], pin: null }, _seq: { tasks: 0, reminders: 0 } };
+    return { tasks: [], completions: [], reminders: [], journal: [], mood: {}, settings: { resetHour: 0, vacationDays: [], pin: null }, _seq: { tasks: 0, reminders: 0 } };
   }
 }
 
@@ -394,6 +395,25 @@ app.put('/api/journal/:date', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Mood ───────────────────────────────────────────────────────────────────
+
+app.get('/api/mood', (req, res) => {
+  const data = load();
+  res.json(data.mood || {});
+});
+
+app.patch('/api/mood', (req, res) => {
+  const { date, value } = req.body;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'invalid date' });
+  const v = Number(value);
+  if (!Number.isInteger(v) || v < 1 || v > 5) return res.status(400).json({ error: 'value must be 1–5' });
+  const data = load();
+  if (!data.mood) data.mood = {};
+  data.mood[date] = v;
+  save(data);
+  res.json({ ok: true });
+});
+
 // ── Summary ────────────────────────────────────────────────────────────────
 
 app.get('/api/summary', (req, res) => {
@@ -440,8 +460,8 @@ app.get('/api/summary', (req, res) => {
 
   const todayEntry = data.journal.find(j => j.date === dailyPeriod);
 
-
   res.json({
+    mood: (data.mood || {})[dailyPeriod] ?? null,
     date: `${DAY_NAMES[d.getDay()]}, ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`,
     week: `Week ${isoWeek}`,
     today: dailyPeriod,
