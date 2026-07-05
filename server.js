@@ -560,10 +560,12 @@ app.get('/api/summary', (req, res) => {
     .sort((a, b) => b.streak - a.streak)
     .slice(0, 5);
 
-  const d = new Date();
   const DAY_NAMES   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const isoWeek = parseInt(getWeeklyPeriod().split('-W')[1], 10);
+  // Derive display date from dailyPeriod (already timezone-correct) to avoid UTC drift
+  const [py, pm, pd] = dailyPeriod.split('-').map(Number);
+  const periodDate = new Date(Date.UTC(py, pm - 1, pd, 12));
+  const isoWeek = parseInt(weeklyPeriod.split('-W')[1], 10);
 
   const todayEntry = data.journal.find(j => j.date === dailyPeriod);
 
@@ -574,7 +576,7 @@ app.get('/api/summary', (req, res) => {
 
   res.json({
     mood: (data.mood || {})[dailyPeriod] ?? null,
-    date: `${DAY_NAMES[d.getDay()]}, ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`,
+    date: `${DAY_NAMES[periodDate.getUTCDay()]}, ${MONTH_NAMES[pm - 1]} ${pd}`,
     week: `Week ${isoWeek}`,
     today: dailyPeriod,
     daily:   { total: activeDailies.length,  completed: [...dailyDone].filter(id => activeDailies.find(t => t.id === id)).length },
