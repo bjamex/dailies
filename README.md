@@ -6,6 +6,18 @@ A self-hosted habit tracker and daily planner. Tracks daily, weekly, and monthly
 
 ---
 
+## Screenshots
+
+| Overview | Daily habits |
+|----------|-------------|
+| ![Overview](static/screenshots/overview.png) | ![Daily](static/screenshots/daily.png) |
+
+| Stats | Journal & mood |
+|-------|---------------|
+| ![Stats](static/screenshots/stats.png) | ![Journal](static/screenshots/journal.png) |
+
+---
+
 ## Features
 
 - **Daily / Weekly / Monthly habits** — check off recurring tasks, build streaks, set streak goals
