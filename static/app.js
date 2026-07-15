@@ -1745,41 +1745,45 @@ async function openPinSetModal(isChange) {
 // ── Theme toggle ─────────────────────────────────────────────────────────
 
 (function initTheme() {
-  const btn = document.getElementById('theme-btn');
-  const THEMES = ['dark', 'light', 'eldritch', 'rosepine'];
+  const sel = document.getElementById('theme-select');
+  const THEMES = ['dark', 'light', 'eldritch', 'rosepine', 'nord', 'gruvbox', 'dracula', 'tokyonight', 'solarized'];
+  // 'dark' is the :root default (no body class); the rest each add a body class.
+  const CLASSES = ['light', 'eldritch', 'rosepine', 'nord', 'gruvbox', 'dracula', 'tokyonight', 'solarized'];
   const META = {
-    dark:     { icon: '🌙', label: 'Dark',      surface: '#1c1b19' },
-    light:    { icon: '☀️', label: 'Light',     surface: '#faf9f6' },
-    eldritch: { icon: '🔮', label: 'Eldritch',  surface: '#212337' },
-    rosepine: { icon: '🌹', label: 'Rosé Pine', surface: '#1f1d2e' },
+    dark:       { icon: '🌙', label: 'Dark',        surface: '#1c1b19' },
+    light:      { icon: '☀️', label: 'Light',       surface: '#faf9f6' },
+    eldritch:   { icon: '🔮', label: 'Eldritch',    surface: '#212337' },
+    rosepine:   { icon: '🌹', label: 'Rosé Pine',   surface: '#1f1d2e' },
+    nord:       { icon: '❄️', label: 'Nord',        surface: '#3b4252' },
+    gruvbox:    { icon: '🍂', label: 'Gruvbox',     surface: '#282828' },
+    dracula:    { icon: '🧛', label: 'Dracula',     surface: '#282a36' },
+    tokyonight: { icon: '🌃', label: 'Tokyo Night', surface: '#1a1b26' },
+    solarized:  { icon: '🌅', label: 'Solarized',   surface: '#073642' },
   };
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
 
   const apply = (theme) => {
-    document.body.classList.toggle('light', theme === 'light');
-    document.body.classList.toggle('eldritch', theme === 'eldritch');
-    document.body.classList.toggle('rosepine', theme === 'rosepine');
+    for (const c of CLASSES) document.body.classList.toggle(c, c === theme);
     const m = META[theme] || META.dark;
-    btn.textContent = m.icon;
-    const next = META[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]].label;
-    btn.title = `Theme: ${m.label} — click for ${next}`;
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.content = m.surface;
+    if (sel) sel.value = theme;
   };
+
+  if (sel) sel.innerHTML = THEMES.map(t => `<option value="${t}">${META[t].icon} ${META[t].label}</option>`).join('');
 
   let current = localStorage.getItem('theme');
   if (!THEMES.includes(current)) {
     current = systemDark.matches ? 'dark' : 'light';
     systemDark.addEventListener('change', e => {
-      if (!localStorage.getItem('theme')) { current = e.matches ? 'dark' : 'light'; apply(current); }
+      if (!localStorage.getItem('theme')) apply(e.matches ? 'dark' : 'light');
     });
   }
   apply(current);
 
-  btn.addEventListener('click', () => {
-    current = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length];
-    localStorage.setItem('theme', current);
-    apply(current);
+  sel?.addEventListener('change', () => {
+    localStorage.setItem('theme', sel.value);
+    apply(sel.value);
   });
 })();
 
