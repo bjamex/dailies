@@ -1746,19 +1746,22 @@ async function openPinSetModal(isChange) {
 
 (function initTheme() {
   const sel = document.getElementById('theme-select');
-  const THEMES = ['dark', 'light', 'eldritch', 'rosepine', 'nord', 'gruvbox', 'dracula', 'tokyonight', 'solarized'];
+  const THEMES = ['dark', 'light', 'latte', 'rosepinedawn', 'everforestlight', 'githublight', 'eldritch', 'rosepine', 'nord', 'gruvbox', 'dracula', 'tokyonight'];
   // 'dark' is the :root default (no body class); the rest each add a body class.
-  const CLASSES = ['light', 'eldritch', 'rosepine', 'nord', 'gruvbox', 'dracula', 'tokyonight', 'solarized'];
+  const CLASSES = ['light', 'latte', 'rosepinedawn', 'everforestlight', 'githublight', 'eldritch', 'rosepine', 'nord', 'gruvbox', 'dracula', 'tokyonight'];
   const META = {
-    dark:       { icon: '🌙', label: 'Dark',        surface: '#1c1b19' },
-    light:      { icon: '☀️', label: 'Light',       surface: '#faf9f6' },
-    eldritch:   { icon: '🔮', label: 'Eldritch',    surface: '#212337' },
-    rosepine:   { icon: '🌹', label: 'Rosé Pine',   surface: '#1f1d2e' },
-    nord:       { icon: '❄️', label: 'Nord',        surface: '#3b4252' },
-    gruvbox:    { icon: '🍂', label: 'Gruvbox',     surface: '#282828' },
-    dracula:    { icon: '🧛', label: 'Dracula',     surface: '#282a36' },
-    tokyonight: { icon: '🌃', label: 'Tokyo Night', surface: '#1a1b26' },
-    solarized:  { icon: '🌅', label: 'Solarized',   surface: '#073642' },
+    dark:            { icon: '🌙', label: 'Dark',            surface: '#1c1b19' },
+    light:           { icon: '☀️', label: 'Light',           surface: '#faf9f6' },
+    latte:           { icon: '☕', label: 'Catppuccin Latte', surface: '#eff1f5' },
+    rosepinedawn:    { icon: '🌸', label: 'Rosé Pine Dawn',  surface: '#fffaf3' },
+    everforestlight: { icon: '🌿', label: 'Everforest Light', surface: '#efebd4' },
+    githublight:     { icon: '🐙', label: 'GitHub Light',    surface: '#ffffff' },
+    eldritch:        { icon: '🔮', label: 'Eldritch',        surface: '#212337' },
+    rosepine:        { icon: '🌹', label: 'Rosé Pine',       surface: '#1f1d2e' },
+    nord:            { icon: '❄️', label: 'Nord',            surface: '#3b4252' },
+    gruvbox:         { icon: '🍂', label: 'Gruvbox',         surface: '#282828' },
+    dracula:         { icon: '🧛', label: 'Dracula',         surface: '#282a36' },
+    tokyonight:      { icon: '🌃', label: 'Tokyo Night',     surface: '#1a1b26' },
   };
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
 
