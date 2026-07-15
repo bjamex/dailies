@@ -1,5 +1,5 @@
-const CACHE = 'dailies-v1';
-const STATIC = ['/', '/style.css', '/app.js', '/manifest.json'];
+const CACHE = 'dailies-v3';
+const STATIC = ['/', '/style.css', '/app.js', '/vendor/editor.bundle.js', '/manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(STATIC)));

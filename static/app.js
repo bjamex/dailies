@@ -34,13 +34,6 @@ const api = {
     body: JSON.stringify({ order }),
   }),
 
-  getTodos:        () => fetch('/api/todos').then(r => r.json()),
-  createTodo:      (title) => fetch('/api/todos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) }).then(r => r.json()),
-  updateTodo:      (id, patch) => fetch(`/api/todos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }),
-  deleteTodo:      (id) => fetch(`/api/todos/${id}`, { method: 'DELETE' }),
-  reorderTodos:    (order) => fetch('/api/todos/reorder', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order }) }),
-  clearCompleted:  () => fetch('/api/todos/completed', { method: 'DELETE' }),
-
   getMood:  () => fetch('/api/mood').then(r => r.json()),
   setMood:  (date, value) => fetch('/api/mood', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -53,6 +46,27 @@ const api = {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   }),
+
+  getNotesTree:   () => fetch('/api/notes/tree').then(r => r.json()),
+  getNote:        (id) => fetch(`/api/notes/${id}`).then(r => r.json()),
+  createNote:     (folder_id, title) => fetch('/api/notes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folder_id, title }),
+  }).then(r => r.json()),
+  updateNote:     (id, patch) => fetch(`/api/notes/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }),
+  deleteNote:     (id) => fetch(`/api/notes/${id}`, { method: 'DELETE' }),
+  createFolder:   (name, parent_id) => fetch('/api/folders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, parent_id }),
+  }).then(r => r.json()),
+  updateFolder:   (id, patch) => fetch(`/api/folders/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }),
+  deleteFolder:   (id) => fetch(`/api/folders/${id}`, { method: 'DELETE' }),
 
   getReminders:    () => fetch('/api/reminders').then(r => r.json()),
   createReminder:  (content) => fetch('/api/reminders', {
@@ -229,13 +243,6 @@ async function loadOverview() {
 
     ${todoHtml ? `<div class="overview-section"><div class="overview-label">Still to do today</div>${todoHtml}</div>` : ''}
 
-    ${s.incompleteTodos.length ? `<div class="overview-section"><div class="overview-label">Tasks</div>
-      <ul class="overview-todo-list" id="overview-todos">${s.incompleteTodos.map(t => `
-        <li class="overview-todo-item" data-id="${t.id}">
-          <input type="checkbox" aria-label="Complete ${esc(t.title)}">
-          <span class="todo-title">${esc(t.title)}</span>
-        </li>`).join('')}</ul></div>` : ''}
-
     ${streakHtml ? `<div class="overview-section"><div class="overview-label">Streaks</div>${streakHtml}</div>` : ''}
 
     ${remindersHtml ? `<div class="overview-section"><div class="overview-label">Reminders</div><div class="overview-reminders">${remindersHtml}</div></div>` : ''}
@@ -383,20 +390,6 @@ async function loadOverview() {
     await api.completeTask(id);
     setTimeout(() => loadOverview(), 500);
   });
-
-  // Checkable one-off task items
-  document.getElementById('overview-todos')?.addEventListener('click', async (e) => {
-    const li = e.target.closest('.overview-todo-item');
-    if (!li) return;
-    const cb = li.querySelector('input[type="checkbox"]');
-    if (!cb) return;
-    const id = li.dataset.id;
-    cb.checked = true;
-    li.classList.add('done');
-    await api.updateTodo(id, { completed: true });
-    if (loaded.has('tasks')) loaded.delete('tasks');
-    setTimeout(() => loadOverview(), 400);
-  });
 }
 
 // ── Task lists ────────────────────────────────────────────────────────────
@@ -524,7 +517,7 @@ function initDrag(ul, onReorder) {
   ul.addEventListener('drop', async (e) => {
     e.preventDefault();
     ul.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-    const items = [...ul.querySelectorAll('.task-item:not(.todo-completed-sep)')];
+    const items = [...ul.querySelectorAll('.task-item')];
     const order = items.map((li, i) => ({ id: Number(li.dataset.id), position: i }));
     await reorder(order);
   });
@@ -562,7 +555,7 @@ function initDrag(ul, onReorder) {
       touchEl.style.opacity = '';
     }
     ul.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-    const items = [...ul.querySelectorAll('.task-item:not(.todo-completed-sep)')];
+    const items = [...ul.querySelectorAll('.task-item')];
     const order = items.map((li, i) => ({ id: Number(li.dataset.id), position: i }));
     await reorder(order);
     touchEl = null;
@@ -857,81 +850,6 @@ async function loadStats() {
   });
 }
 
-// ── Todos ─────────────────────────────────────────────────────────────────
-
-function makeTodoItem(todo) {
-  const li = document.createElement('li');
-  li.className = `task-item${todo.completed ? ' done' : ''}`;
-  li.dataset.id = todo.id;
-  li.draggable = !todo.completed;
-  li.innerHTML = `
-    ${!todo.completed ? '<span class="drag-handle" aria-hidden="true">⠿</span>' : '<span class="drag-handle-spacer"></span>'}
-    <input type="checkbox" ${todo.completed ? 'checked' : ''} aria-label="${esc(todo.title)}">
-    <span class="task-label-wrap"><span class="task-label">${esc(todo.title)}</span></span>
-    <button class="delete-btn" title="Delete" data-action="delete">✕</button>
-  `;
-  return li;
-}
-
-async function loadTodos() {
-  const listEl = document.getElementById('tasks-list');
-  const clearBtn = document.getElementById('todos-clear-btn');
-  const todos = await api.getTodos();
-
-  const incomplete = todos.filter(t => !t.completed);
-  const completed  = todos.filter(t => t.completed);
-
-  clearBtn.hidden = completed.length === 0;
-  if (!clearBtn.hidden) clearBtn.textContent = `Clear completed (${completed.length})`;
-
-  listEl.innerHTML = '';
-  if (!incomplete.length && !completed.length) {
-    listEl.innerHTML = '<li class="empty-state">Nothing here — add a task below.</li>';
-    return;
-  }
-
-  incomplete.forEach(t => listEl.appendChild(makeTodoItem(t)));
-  initDrag(listEl, async (order) => api.reorderTodos(order));
-
-  if (completed.length) {
-    const sep = document.createElement('li');
-    sep.className = 'todo-completed-sep';
-    sep.textContent = `Completed (${completed.length})`;
-    listEl.appendChild(sep);
-    completed.forEach(t => listEl.appendChild(makeTodoItem(t)));
-  }
-}
-
-document.getElementById('tasks-list').addEventListener('click', async (e) => {
-  const li = e.target.closest('.task-item');
-  if (!li) return;
-  const id = li.dataset.id;
-  if (e.target.matches('input[type="checkbox"]')) {
-    const checked = e.target.checked;
-    await api.updateTodo(id, { completed: checked });
-    loadTodos();
-  } else if (e.target.dataset.action === 'delete') {
-    li.remove();
-    await api.deleteTodo(id);
-    loadTodos();
-  }
-});
-
-document.getElementById('tasks-add-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const input = document.getElementById('tasks-input');
-  const title = input.value.trim();
-  if (!title) return;
-  input.value = '';
-  await api.createTodo(title);
-  loadTodos();
-});
-
-document.getElementById('todos-clear-btn').addEventListener('click', async () => {
-  await api.clearCompleted();
-  loadTodos();
-});
-
 // ── Journal browser ───────────────────────────────────────────────────────
 
 function wireMoodSelector(today, moodData) {
@@ -1051,6 +969,7 @@ function switchTab(name) {
     t.setAttribute('aria-selected', active);
   });
   panels.forEach(p => { p.hidden = p.id !== name; });
+  document.body.classList.toggle('notes-wide', name === 'notes');
   clearKbFocus();
   if (!loaded.has(name)) {
     loaded.add(name);
@@ -1058,7 +977,7 @@ function switchTab(name) {
     else if (name === 'daily')     loadTasks('daily');
     else if (name === 'weekly')    loadTasks('weekly');
     else if (name === 'monthly')   loadTasks('monthly');
-    else if (name === 'tasks')     loadTodos();
+    else if (name === 'notes')     loadNotes();
     else if (name === 'stats')     loadStats();
     else if (name === 'journal')   loadJournalBrowser();
     else if (name === 'reminders') loadReminders();
@@ -1185,6 +1104,256 @@ document.getElementById('reminder-add-form').addEventListener('submit', async (e
   refreshOverview();
 });
 
+// ── Notes ─────────────────────────────────────────────────────────────────
+
+const notesState = {
+  tree: { folders: [], notes: [] },
+  currentId: null,
+  currentNote: null,
+  editorHandle: null,
+  expanded: new Set(JSON.parse(localStorage.getItem('notes-expanded') || '[]')),
+  contentTimer: null,
+  titleTimer: null,
+};
+
+function persistExpanded() {
+  localStorage.setItem('notes-expanded', JSON.stringify([...notesState.expanded]));
+}
+
+async function loadNotes() {
+  notesState.tree = await api.getNotesTree();
+  renderNotesTree();
+  if (notesState.currentId && notesState.tree.notes.some(n => n.id === notesState.currentId)) {
+    // keep current note open; refresh folder dropdown in case tree changed
+    document.getElementById('note-folder-select').innerHTML = buildFolderOptions(notesState.currentNote?.folder_id ?? null);
+  } else {
+    closeNoteEditor({ save: false });
+  }
+}
+
+function renderNotesTree() {
+  const { folders, notes } = notesState.tree;
+  const treeEl = document.getElementById('notes-tree');
+  const childFolders = (pid) => folders.filter(f => (f.parent_id ?? null) === pid).sort((a, b) => a.position - b.position || a.id - b.id);
+  const childNotes   = (fid) => notes.filter(n => (n.folder_id ?? null) === fid).sort((a, b) => a.position - b.position || a.id - b.id);
+
+  const renderNoteRow = (n, depth) => {
+    const active = n.id === notesState.currentId ? ' active' : '';
+    return `<div class="note-row note-item${active}" data-note="${n.id}" style="padding-left:${depth * 14 + 20}px">
+      <span class="note-icon">📄</span>
+      <span class="note-name">${esc(n.title)}</span>
+      <span class="note-row-actions">
+        <button class="note-row-btn" data-act="delete-note" title="Delete note">✕</button>
+      </span></div>`;
+  };
+  const renderFolderRow = (f, depth) => {
+    const expanded = notesState.expanded.has(f.id);
+    let h = `<div class="note-row folder-row${expanded ? ' expanded' : ''}" data-folder="${f.id}" style="padding-left:${depth * 14 + 4}px">
+      <span class="note-caret">▸</span>
+      <span class="note-icon">📁</span>
+      <span class="note-name">${esc(f.name)}</span>
+      <span class="note-row-actions">
+        <button class="note-row-btn" data-act="add-note" title="New note in folder">＋</button>
+        <button class="note-row-btn" data-act="add-folder" title="New subfolder">📁</button>
+        <button class="note-row-btn" data-act="rename-folder" title="Rename">✎</button>
+        <button class="note-row-btn" data-act="delete-folder" title="Delete folder">✕</button>
+      </span></div>`;
+    if (expanded) {
+      h += '<div class="note-children">';
+      for (const sf of childFolders(f.id)) h += renderFolderRow(sf, depth + 1);
+      for (const n of childNotes(f.id))    h += renderNoteRow(n, depth + 1);
+      h += '</div>';
+    }
+    return h;
+  };
+
+  let html = '';
+  for (const f of childFolders(null)) html += renderFolderRow(f, 0);
+  for (const n of childNotes(null))   html += renderNoteRow(n, 0);
+  treeEl.innerHTML = html || '<div class="notes-tree-empty">No notes yet — use ＋ Note above.</div>';
+}
+
+function buildFolderOptions(selectedId) {
+  const { folders } = notesState.tree;
+  const byParent = (pid) => folders.filter(f => (f.parent_id ?? null) === pid).sort((a, b) => a.position - b.position || a.id - b.id);
+  let opts = `<option value=""${selectedId == null ? ' selected' : ''}>(No folder)</option>`;
+  const walk = (pid, depth) => {
+    for (const f of byParent(pid)) {
+      const indent = '  '.repeat(depth);
+      opts += `<option value="${f.id}"${f.id === selectedId ? ' selected' : ''}>${indent}${esc(f.name)}</option>`;
+      walk(f.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return opts;
+}
+
+function flushEditorSave() {
+  if (!notesState.editorHandle || !notesState.currentId) return;
+  clearTimeout(notesState.contentTimer);
+  const content = notesState.editorHandle.getMarkdown();
+  if (notesState.currentNote) notesState.currentNote.content = content;
+  api.updateNote(notesState.currentId, { content });
+}
+
+function destroyEditor() {
+  if (notesState.editorHandle) { notesState.editorHandle.destroy(); notesState.editorHandle = null; }
+}
+
+function closeNoteEditor({ save = true } = {}) {
+  if (save) flushEditorSave();
+  destroyEditor();
+  notesState.currentId = null;
+  notesState.currentNote = null;
+  document.getElementById('note-editor').hidden = true;
+  document.getElementById('notes-empty').hidden = false;
+  document.getElementById('notes-layout').classList.remove('viewing-note');
+}
+
+async function openNote(id, { focusTitle = false } = {}) {
+  if (!window.NoteEditor) { console.error('Editor bundle not loaded'); return; }
+  const note = await api.getNote(id);
+  if (note.error) return;
+  // Flush and tear down whatever note was open before mounting the new one.
+  if (notesState.currentId && notesState.currentId !== id) flushEditorSave();
+  destroyEditor();
+
+  notesState.currentId = id;
+  notesState.currentNote = note;
+
+  document.getElementById('notes-empty').hidden = true;
+  document.getElementById('note-editor').hidden = false;
+  document.getElementById('notes-layout').classList.add('viewing-note');
+
+  document.getElementById('note-title-input').value = note.title;
+  document.getElementById('note-folder-select').innerHTML = buildFolderOptions(note.folder_id ?? null);
+
+  const mount = document.getElementById('note-editor-mount');
+  mount.innerHTML = '';
+  notesState.editorHandle = window.NoteEditor.create({
+    element: mount,
+    toolbar: document.getElementById('note-toolbar'),
+    content: note.content || '',
+    placeholder: 'Start writing…  (type # for a heading, - [ ] for a checkbox, or use the toolbar)',
+    onChange: () => saveNoteContentSoon(),
+  });
+  renderNotesTree();
+
+  if (focusTitle) {
+    const ti = document.getElementById('note-title-input');
+    ti.focus(); ti.select();
+  } else {
+    notesState.editorHandle.focus();
+  }
+}
+
+function saveNoteContentSoon() {
+  clearTimeout(notesState.contentTimer);
+  notesState.contentTimer = setTimeout(() => {
+    if (!notesState.currentId || !notesState.editorHandle) return;
+    const content = notesState.editorHandle.getMarkdown();
+    if (notesState.currentNote) notesState.currentNote.content = content;
+    api.updateNote(notesState.currentId, { content });
+  }, 700);
+}
+
+// ── Notes: wiring (elements exist at load) ─────────────────────────────────
+
+document.getElementById('notes-tree').addEventListener('click', async (e) => {
+  const actBtn = e.target.closest('.note-row-btn');
+  if (actBtn) {
+    e.stopPropagation();
+    const act = actBtn.dataset.act;
+    const folderRow = actBtn.closest('.folder-row');
+    const noteRow = actBtn.closest('.note-item');
+    const folderId = folderRow ? Number(folderRow.dataset.folder) : null;
+    const noteId = noteRow ? Number(noteRow.dataset.note) : null;
+
+    if (act === 'add-note') {
+      const { id } = await api.createNote(folderId, 'Untitled');
+      notesState.expanded.add(folderId); persistExpanded();
+      await loadNotes();
+      openNote(id, { focusTitle: true });
+    } else if (act === 'add-folder') {
+      const name = prompt('New subfolder name:');
+      if (name && name.trim()) { await api.createFolder(name.trim(), folderId); notesState.expanded.add(folderId); persistExpanded(); await loadNotes(); }
+    } else if (act === 'rename-folder') {
+      const f = notesState.tree.folders.find(x => x.id === folderId);
+      const name = prompt('Rename folder:', f?.name || '');
+      if (name && name.trim()) { await api.updateFolder(folderId, { name: name.trim() }); await loadNotes(); }
+    } else if (act === 'delete-folder') {
+      if (confirm('Delete this folder and everything inside it? This cannot be undone.')) {
+        await api.deleteFolder(folderId);
+        await loadNotes(); // closes the editor if the open note lived in this folder
+      }
+    } else if (act === 'delete-note') {
+      if (confirm('Delete this note?')) {
+        if (notesState.currentId === noteId) closeNoteEditor({ save: false });
+        await api.deleteNote(noteId);
+        await loadNotes();
+      }
+    }
+    return;
+  }
+  const noteRow = e.target.closest('.note-item');
+  if (noteRow) { openNote(Number(noteRow.dataset.note)); return; }
+  const folderRow = e.target.closest('.folder-row');
+  if (folderRow) {
+    const id = Number(folderRow.dataset.folder);
+    if (notesState.expanded.has(id)) notesState.expanded.delete(id);
+    else notesState.expanded.add(id);
+    persistExpanded();
+    renderNotesTree();
+  }
+});
+
+document.getElementById('notes-new-note').addEventListener('click', async () => {
+  const { id } = await api.createNote(null, 'Untitled');
+  await loadNotes();
+  openNote(id, { focusTitle: true });
+});
+
+document.getElementById('notes-new-folder').addEventListener('click', async () => {
+  const name = prompt('New folder name:');
+  if (name && name.trim()) { await api.createFolder(name.trim(), null); await loadNotes(); }
+});
+
+document.getElementById('note-back-btn').addEventListener('click', () => {
+  flushEditorSave();
+  document.getElementById('notes-layout').classList.remove('viewing-note');
+});
+
+document.getElementById('note-title-input').addEventListener('input', (e) => {
+  const title = e.target.value;
+  clearTimeout(notesState.titleTimer);
+  notesState.titleTimer = setTimeout(async () => {
+    if (!notesState.currentId) return;
+    await api.updateNote(notesState.currentId, { title });
+    if (notesState.currentNote) notesState.currentNote.title = title.trim() || 'Untitled';
+    // reflect in tree without reordering the view
+    const row = document.querySelector(`.note-item[data-note="${notesState.currentId}"] .note-name`);
+    if (row) row.textContent = notesState.currentNote.title;
+  }, 500);
+});
+
+document.getElementById('note-folder-select').addEventListener('change', async (e) => {
+  if (!notesState.currentId) return;
+  const val = e.target.value === '' ? null : Number(e.target.value);
+  await api.updateNote(notesState.currentId, { folder_id: val });
+  if (notesState.currentNote) notesState.currentNote.folder_id = val;
+  if (val != null) { notesState.expanded.add(val); persistExpanded(); }
+  await loadNotes();
+});
+
+document.getElementById('note-delete-btn').addEventListener('click', async () => {
+  if (!notesState.currentId) return;
+  if (!confirm('Delete this note?')) return;
+  const id = notesState.currentId;
+  closeNoteEditor({ save: false });
+  await api.deleteNote(id);
+  await loadNotes();
+});
+
 // ── Keyboard navigation ───────────────────────────────────────────────────
 
 let kbFocusEl = null;
@@ -1222,11 +1391,12 @@ function focusAddInput() {
   input?.focus();
 }
 
-const TAB_KEYS = { o: 'overview', d: 'daily', w: 'weekly', m: 'monthly', t: 'tasks', s: 'stats', j: 'journal', r: 'reminders' };
+const TAB_KEYS = { o: 'overview', d: 'daily', w: 'weekly', m: 'monthly', s: 'stats', j: 'journal', r: 'reminders' };
 
 document.addEventListener('keydown', (e) => {
-  const tag = document.activeElement?.tagName;
-  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  const ae = document.activeElement;
+  const tag = ae?.tagName;
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!ae?.isContentEditable;
 
   if (e.key === 'Escape') {
     if (!document.getElementById('kb-modal').hidden) closeKbModal();
@@ -1576,25 +1746,40 @@ async function openPinSetModal(isChange) {
 
 (function initTheme() {
   const btn = document.getElementById('theme-btn');
-  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
-  const apply = (light) => {
-    document.body.classList.toggle('light', light);
-    btn.textContent = light ? '🌙' : '☀️';
-    btn.title = light ? 'Switch to dark mode' : 'Switch to light mode';
+  const THEMES = ['dark', 'light', 'eldritch', 'rosepine'];
+  const META = {
+    dark:     { icon: '🌙', label: 'Dark',      surface: '#1c1b19' },
+    light:    { icon: '☀️', label: 'Light',     surface: '#faf9f6' },
+    eldritch: { icon: '🔮', label: 'Eldritch',  surface: '#212337' },
+    rosepine: { icon: '🌹', label: 'Rosé Pine', surface: '#1f1d2e' },
   };
-  const saved = localStorage.getItem('theme');
-  if (saved) {
-    apply(saved === 'light');
-  } else {
-    apply(!systemDark.matches);
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+  const apply = (theme) => {
+    document.body.classList.toggle('light', theme === 'light');
+    document.body.classList.toggle('eldritch', theme === 'eldritch');
+    document.body.classList.toggle('rosepine', theme === 'rosepine');
+    const m = META[theme] || META.dark;
+    btn.textContent = m.icon;
+    const next = META[THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]].label;
+    btn.title = `Theme: ${m.label} — click for ${next}`;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = m.surface;
+  };
+
+  let current = localStorage.getItem('theme');
+  if (!THEMES.includes(current)) {
+    current = systemDark.matches ? 'dark' : 'light';
     systemDark.addEventListener('change', e => {
-      if (!localStorage.getItem('theme')) apply(!e.matches);
+      if (!localStorage.getItem('theme')) { current = e.matches ? 'dark' : 'light'; apply(current); }
     });
   }
+  apply(current);
+
   btn.addEventListener('click', () => {
-    const isLight = document.body.classList.contains('light');
-    apply(!isLight);
-    localStorage.setItem('theme', !isLight ? 'light' : 'dark');
+    current = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length];
+    localStorage.setItem('theme', current);
+    apply(current);
   });
 })();
 

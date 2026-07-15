@@ -18,7 +18,8 @@ function load() {
       if (!('notify_time' in t))  t.notify_time = null;
     }
     if (!data.journal)  data.journal = [];
-    if (!data.todos)    data.todos = [];
+    if (!data.folders)  data.folders = [];
+    if (!data.notes)    data.notes = [];
     if (!data.mood)     data.mood = {};
     if (!data.settings) data.settings = {};
     if (!('resetHour'    in data.settings)) data.settings.resetHour    = 0;
@@ -27,7 +28,7 @@ function load() {
     if (!('timezone'     in data.settings)) data.settings.timezone     = null;
     return data;
   } catch {
-    return { tasks: [], completions: [], reminders: [], journal: [], todos: [], mood: {}, settings: { resetHour: 0, vacationDays: [], pin: null, timezone: null }, _seq: { tasks: 0, reminders: 0 } };
+    return { tasks: [], completions: [], reminders: [], journal: [], folders: [], notes: [], mood: {}, settings: { resetHour: 0, vacationDays: [], pin: null, timezone: null }, _seq: { tasks: 0, reminders: 0 } };
   }
 }
 
@@ -439,68 +440,6 @@ app.put('/api/journal/:date', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Todos ──────────────────────────────────────────────────────────────────
-
-app.get('/api/todos', (req, res) => {
-  const data = load();
-  res.json([...(data.todos || [])].sort((a, b) => a.position - b.position || a.id - b.id));
-});
-
-app.post('/api/todos', (req, res) => {
-  const { title } = req.body;
-  if (!title?.trim()) return res.status(400).json({ error: 'title required' });
-  const data = load();
-  if (!data.todos) data.todos = [];
-  const maxPos = data.todos.reduce((m, t) => Math.max(m, t.position ?? 0), -1);
-  const todo = { id: nextId(data, 'todos'), title: title.trim(), completed: false, completed_at: null, position: maxPos + 1, created_at: now() };
-  data.todos.push(todo);
-  save(data);
-  res.status(201).json({ id: todo.id });
-});
-
-app.patch('/api/todos/reorder', (req, res) => {
-  const { order } = req.body;
-  if (!Array.isArray(order)) return res.status(400).json({ error: 'order required' });
-  const data = load();
-  for (const { id, position } of order) {
-    const t = (data.todos || []).find(t => t.id === Number(id));
-    if (t) t.position = position;
-  }
-  save(data);
-  res.json({ ok: true });
-});
-
-app.patch('/api/todos/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const data = load();
-  const todo = (data.todos || []).find(t => t.id === id);
-  if (!todo) return res.status(404).json({ error: 'not found' });
-  if (req.body.title !== undefined) {
-    if (!req.body.title.trim()) return res.status(400).json({ error: 'title required' });
-    todo.title = req.body.title.trim();
-  }
-  if (req.body.completed !== undefined) {
-    todo.completed = !!req.body.completed;
-    todo.completed_at = todo.completed ? now() : null;
-  }
-  save(data);
-  res.json({ ok: true });
-});
-
-app.delete('/api/todos/completed', (req, res) => {
-  const data = load();
-  data.todos = (data.todos || []).filter(t => !t.completed);
-  save(data);
-  res.json({ ok: true });
-});
-
-app.delete('/api/todos/:id', (req, res) => {
-  const data = load();
-  data.todos = (data.todos || []).filter(t => t.id !== Number(req.params.id));
-  save(data);
-  res.json({ ok: true });
-});
-
 // ── Mood ───────────────────────────────────────────────────────────────────
 
 app.get('/api/mood', (req, res) => {
@@ -569,11 +508,6 @@ app.get('/api/summary', (req, res) => {
 
   const todayEntry = data.journal.find(j => j.date === dailyPeriod);
 
-  const incompleteTodos = (data.todos || [])
-    .filter(t => !t.completed)
-    .sort((a, b) => a.position - b.position || a.id - b.id)
-    .map(t => ({ id: t.id, title: t.title }));
-
   res.json({
     mood: (data.mood || {})[dailyPeriod] ?? null,
     date: `${DAY_NAMES[periodDate.getUTCDay()]}, ${MONTH_NAMES[pm - 1]} ${pd}`,
@@ -583,7 +517,6 @@ app.get('/api/summary', (req, res) => {
     weekly:  { total: weeklyTasks.length,  completed: weeklyDone.size },
     monthly: { total: monthlyTasks.length, completed: monthlyDone.size },
     incompleteDailies,
-    incompleteTodos,
     topStreaks,
     reminders: [...data.reminders].sort((a, b) => a.position - b.position || a.id - b.id),
     journalContent: todayEntry?.content ?? '',
@@ -683,6 +616,150 @@ app.patch('/api/reminders/:id', (req, res) => {
 app.delete('/api/reminders/:id', (req, res) => {
   const data = load();
   data.reminders = data.reminders.filter(r => r.id !== Number(req.params.id));
+  save(data);
+  res.json({ ok: true });
+});
+
+// ── Notes & Folders ──────────────────────────────────────────────────────────
+
+// Return the folder tree metadata + note metadata (no note bodies) for the sidebar
+app.get('/api/notes/tree', (req, res) => {
+  const data = load();
+  const folders = [...(data.folders || [])]
+    .sort((a, b) => a.position - b.position || a.id - b.id)
+    .map(f => ({ id: f.id, name: f.name, parent_id: f.parent_id ?? null, position: f.position }));
+  const notes = [...(data.notes || [])]
+    .sort((a, b) => a.position - b.position || a.id - b.id)
+    .map(n => ({ id: n.id, folder_id: n.folder_id ?? null, title: n.title, position: n.position, updated_at: n.updated_at }));
+  res.json({ folders, notes });
+});
+
+app.get('/api/notes/:id', (req, res) => {
+  const data = load();
+  const note = (data.notes || []).find(n => n.id === Number(req.params.id));
+  if (!note) return res.status(404).json({ error: 'not found' });
+  res.json(note);
+});
+
+app.post('/api/notes', (req, res) => {
+  const data = load();
+  if (!data.notes) data.notes = [];
+  const folder_id = req.body.folder_id != null ? Number(req.body.folder_id) : null;
+  if (folder_id !== null && !(data.folders || []).find(f => f.id === folder_id)) {
+    return res.status(400).json({ error: 'folder not found' });
+  }
+  const title = (req.body.title || '').trim() || 'Untitled';
+  const maxPos = data.notes
+    .filter(n => (n.folder_id ?? null) === folder_id)
+    .reduce((m, n) => Math.max(m, n.position), -1);
+  const note = {
+    id: nextId(data, 'notes'), folder_id, title,
+    content: '', position: maxPos + 1,
+    created_at: now(), updated_at: now(),
+  };
+  data.notes.push(note);
+  save(data);
+  res.status(201).json({ id: note.id });
+});
+
+app.patch('/api/notes/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const data = load();
+  const note = (data.notes || []).find(n => n.id === id);
+  if (!note) return res.status(404).json({ error: 'not found' });
+  if (req.body.title !== undefined)   note.title = String(req.body.title).trim() || 'Untitled';
+  if (req.body.content !== undefined) note.content = String(req.body.content);
+  if (req.body.folder_id !== undefined) {
+    const fid = req.body.folder_id != null ? Number(req.body.folder_id) : null;
+    if (fid !== null && !(data.folders || []).find(f => f.id === fid)) {
+      return res.status(400).json({ error: 'folder not found' });
+    }
+    note.folder_id = fid;
+  }
+  if (req.body.position !== undefined) note.position = Number(req.body.position);
+  note.updated_at = now();
+  save(data);
+  res.json({ ok: true });
+});
+
+app.delete('/api/notes/:id', (req, res) => {
+  const data = load();
+  data.notes = (data.notes || []).filter(n => n.id !== Number(req.params.id));
+  save(data);
+  res.json({ ok: true });
+});
+
+app.post('/api/folders', (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const data = load();
+  if (!data.folders) data.folders = [];
+  const parent_id = req.body.parent_id != null ? Number(req.body.parent_id) : null;
+  if (parent_id !== null && !data.folders.find(f => f.id === parent_id)) {
+    return res.status(400).json({ error: 'parent not found' });
+  }
+  const maxPos = data.folders
+    .filter(f => (f.parent_id ?? null) === parent_id)
+    .reduce((m, f) => Math.max(m, f.position), -1);
+  const folder = { id: nextId(data, 'folders'), name, parent_id, position: maxPos + 1, created_at: now() };
+  data.folders.push(folder);
+  save(data);
+  res.status(201).json({ id: folder.id });
+});
+
+app.patch('/api/folders/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const data = load();
+  const folder = (data.folders || []).find(f => f.id === id);
+  if (!folder) return res.status(404).json({ error: 'not found' });
+  if (req.body.name !== undefined) {
+    const name = String(req.body.name).trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
+    folder.name = name;
+  }
+  if (req.body.parent_id !== undefined) {
+    const pid = req.body.parent_id != null ? Number(req.body.parent_id) : null;
+    // Prevent moving a folder into itself or one of its own descendants
+    if (pid !== null) {
+      if (pid === id) return res.status(400).json({ error: 'cannot nest folder in itself' });
+      const descendants = new Set();
+      const collect = (fid) => {
+        for (const f of data.folders) {
+          if ((f.parent_id ?? null) === fid && !descendants.has(f.id)) {
+            descendants.add(f.id);
+            collect(f.id);
+          }
+        }
+      };
+      collect(id);
+      if (descendants.has(pid)) return res.status(400).json({ error: 'cannot nest folder in its own descendant' });
+      if (!data.folders.find(f => f.id === pid)) return res.status(400).json({ error: 'parent not found' });
+    }
+    folder.parent_id = pid;
+  }
+  if (req.body.position !== undefined) folder.position = Number(req.body.position);
+  save(data);
+  res.json({ ok: true });
+});
+
+// Delete a folder and everything inside it (subfolders + notes), recursively
+app.delete('/api/folders/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const data = load();
+  if (!(data.folders || []).find(f => f.id === id)) return res.status(404).json({ error: 'not found' });
+  const toDelete = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const f of data.folders) {
+      if (f.parent_id != null && toDelete.has(f.parent_id) && !toDelete.has(f.id)) {
+        toDelete.add(f.id);
+        grew = true;
+      }
+    }
+  }
+  data.folders = data.folders.filter(f => !toDelete.has(f.id));
+  data.notes = (data.notes || []).filter(n => !(n.folder_id != null && toDelete.has(n.folder_id)));
   save(data);
   res.json({ ok: true });
 });

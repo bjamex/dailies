@@ -20,7 +20,7 @@
       <button class="tab"        data-tab="daily"      role="tab">Daily <span class="tab-badge" id="badge-daily"></span></button>
       <button class="tab"        data-tab="weekly"     role="tab">Weekly <span class="tab-badge" id="badge-weekly"></span></button>
       <button class="tab"        data-tab="monthly"    role="tab">Monthly <span class="tab-badge" id="badge-monthly"></span></button>
-      <button class="tab"        data-tab="tasks"      role="tab">Tasks</button>
+      <button class="tab"        data-tab="notes"      role="tab">Notes</button>
       <button class="tab"        data-tab="stats"      role="tab">Stats</button>
       <button class="tab"        data-tab="journal"    role="tab">Journal</button>
       <button class="tab"        data-tab="reminders"  role="tab">Reminders</button>
@@ -70,14 +70,31 @@
       </form>
     </section>
 
-    <!-- Tasks (one-off) -->
-    <section id="tasks" class="tab-panel" role="tabpanel" hidden>
-      <ul class="task-list" id="tasks-list"></ul>
-      <button class="clear-completed-btn" id="todos-clear-btn" hidden>Clear completed</button>
-      <form class="add-form" id="tasks-add-form">
-        <input type="text" placeholder="Add a task…" id="tasks-input" autocomplete="off">
-        <button type="submit">Add</button>
-      </form>
+    <!-- Notes -->
+    <section id="notes" class="tab-panel" role="tabpanel" hidden>
+      <div class="notes-layout" id="notes-layout">
+        <aside class="notes-sidebar" id="notes-sidebar">
+          <div class="notes-sidebar-actions">
+            <button class="notes-new-btn" id="notes-new-note" title="New note">＋ Note</button>
+            <button class="notes-new-btn" id="notes-new-folder" title="New folder">＋ Folder</button>
+          </div>
+          <div class="notes-tree" id="notes-tree"></div>
+        </aside>
+        <div class="notes-main" id="notes-main">
+          <div class="notes-empty" id="notes-empty">Select a note, or create one to get started.</div>
+          <div class="note-editor" id="note-editor" hidden>
+            <div class="note-editor-header">
+              <button class="note-back-btn" id="note-back-btn" title="Back to list">←</button>
+              <input type="text" class="note-title-input" id="note-title-input" placeholder="Untitled" autocomplete="off">
+              <select class="note-folder-select" id="note-folder-select" aria-label="Folder"></select>
+              <button class="note-delete-btn" id="note-delete-btn" title="Delete note">🗑</button>
+            </div>
+            <div class="note-toolbar" id="note-toolbar"></div>
+            <div class="note-editor-mount" id="note-editor-mount"></div>
+            <div class="note-save-hint" id="note-save-hint">Saves automatically</div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Stats -->
@@ -181,7 +198,6 @@
         <kbd>d</kbd><span>Daily</span>
         <kbd>w</kbd><span>Weekly</span>
         <kbd>m</kbd><span>Monthly</span>
-        <kbd>t</kbd><span>Tasks</span>
         <kbd>s</kbd><span>Stats</span>
         <kbd>j</kbd><span>Journal</span>
         <kbd>r</kbd><span>Reminders</span>
@@ -196,6 +212,7 @@
     </div>
   </div>
 
+  <script src="vendor/editor.bundle.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
