@@ -1,84 +1,119 @@
 // ── API ───────────────────────────────────────────────────────────────────
 
+// Every write goes through here so a failed save is never silent. `keepalive`
+// lets a flush still land while the page is being torn down.
+async function send(url, method, body, { keepalive = false } = {}) {
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      keepalive,
+    });
+  } catch {
+    saveFailed('Could not reach the server — your last change was not saved.');
+    throw new Error('network error');
+  }
+  if (!res.ok) {
+    const detail = res.status === 413 ? 'That note is too large to save.' : `Save failed (${res.status}).`;
+    saveFailed(detail);
+    throw new Error(detail);
+  }
+  return res;
+}
+
+// For writes whose result nobody reads. send() has already told the user, so
+// swallow here rather than leave a rejection nothing will ever handle.
+const sendVoid = (...args) => send(...args).catch(() => null);
+
+const json = (r) => r.json();
+
 const api = {
-  getTasks:       (type) => fetch(`/api/tasks?type=${type}`).then(r => r.json()),
-  createTask:     (type, title, group) => fetch('/api/tasks', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, title, group: group || null }),
-  }).then(r => r.json()),
-  updateTask:     (id, patch) => fetch(`/api/tasks/${id}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
-  }),
-  deleteTask:     (id) => fetch(`/api/tasks/${id}`, { method: 'DELETE' }),
-  completeTask:   (id) => fetch(`/api/tasks/${id}/complete`, { method: 'POST' }),
-  uncompleteTask: (id) => fetch(`/api/tasks/${id}/complete`, { method: 'DELETE' }),
-  logTask:        (id, value) => fetch(`/api/tasks/${id}/log`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value }),
-  }).then(r => r.json()),
-  getHistory:     (id, days = 91) => fetch(`/api/tasks/${id}/history?days=${days}`).then(r => r.json()),
+  getTasks:       (type) => fetch(`/api/tasks?type=${type}`).then(json),
+  createTask:     (type, title, group) =>
+    send('/api/tasks', 'POST', { type, title, group: group || null }).then(json),
+  updateTask:     (id, patch) => sendVoid(`/api/tasks/${id}`, 'PATCH', patch),
+  deleteTask:     (id) => sendVoid(`/api/tasks/${id}`, 'DELETE'),
+  completeTask:   (id) => sendVoid(`/api/tasks/${id}/complete`, 'POST'),
+  uncompleteTask: (id) => sendVoid(`/api/tasks/${id}/complete`, 'DELETE'),
+  logTask:        (id, value) => send(`/api/tasks/${id}/log`, 'POST', { value }).then(json),
+  getHistory:     (id, days = 91) => fetch(`/api/tasks/${id}/history?days=${days}`).then(json),
 
-  getSummary:  () => fetch('/api/summary').then(r => r.json()),
-  getStats:    () => fetch('/api/stats').then(r => r.json()),
+  getSummary:  () => fetch('/api/summary').then(json),
+  getStats:    () => fetch('/api/stats').then(json),
 
-  listJournal: () => fetch('/api/journal').then(r => r.json()),
-  getJournal:  (date) => fetch(`/api/journal/${date}`).then(r => r.json()),
-  saveJournal: (date, content) => fetch(`/api/journal/${date}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  }),
+  listJournal: () => fetch('/api/journal').then(json),
+  getJournal:  (date) => fetch(`/api/journal/${date}`).then(json),
+  saveJournal: (date, content, opts) => sendVoid(`/api/journal/${date}`, 'PUT', { content }, opts),
 
-  reorderTasks:    (order) => fetch('/api/tasks/reorder', {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ order }),
-  }),
+  reorderTasks:    (order) => sendVoid('/api/tasks/reorder', 'PATCH', { order }),
 
-  getMood:  () => fetch('/api/mood').then(r => r.json()),
-  setMood:  (date, value) => fetch('/api/mood', {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ date, value }),
-  }),
+  getMood:  () => fetch('/api/mood').then(json),
+  setMood:  (date, value) => sendVoid('/api/mood', 'PATCH', { date, value }),
 
-  getQuote:        () => fetch('/api/quote').then(r => r.json()),
-  getSettings:     () => fetch('/api/settings').then(r => r.json()),
-  saveSettings:    (patch) => fetch('/api/settings', {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
-  }),
+  getQuote:        () => fetch('/api/quote').then(json),
+  getSettings:     () => fetch('/api/settings').then(json),
+  saveSettings:    (patch) => sendVoid('/api/settings', 'PATCH', patch),
 
-  getNotesTree:   () => fetch('/api/notes/tree').then(r => r.json()),
-  getNote:        (id) => fetch(`/api/notes/${id}`).then(r => r.json()),
-  createNote:     (folder_id, title) => fetch('/api/notes', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ folder_id, title }),
-  }).then(r => r.json()),
-  updateNote:     (id, patch) => fetch(`/api/notes/${id}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
-  }),
-  deleteNote:     (id) => fetch(`/api/notes/${id}`, { method: 'DELETE' }),
-  createFolder:   (name, parent_id) => fetch('/api/folders', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, parent_id }),
-  }).then(r => r.json()),
-  updateFolder:   (id, patch) => fetch(`/api/folders/${id}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
-  }),
-  deleteFolder:   (id) => fetch(`/api/folders/${id}`, { method: 'DELETE' }),
+  getNotesTree:   () => fetch('/api/notes/tree').then(json),
+  getNote:        (id) => fetch(`/api/notes/${id}`).then(json),
+  createNote:     (folder_id, title) => send('/api/notes', 'POST', { folder_id, title }).then(json),
+  updateNote:     (id, patch, opts) => sendVoid(`/api/notes/${id}`, 'PATCH', patch, opts),
+  deleteNote:     (id) => sendVoid(`/api/notes/${id}`, 'DELETE'),
+  createFolder:   (name, parent_id) => send('/api/folders', 'POST', { name, parent_id }).then(json),
+  updateFolder:   (id, patch) => sendVoid(`/api/folders/${id}`, 'PATCH', patch),
+  deleteFolder:   (id) => sendVoid(`/api/folders/${id}`, 'DELETE'),
 
-  getReminders:    () => fetch('/api/reminders').then(r => r.json()),
-  createReminder:  (content) => fetch('/api/reminders', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  }).then(r => r.json()),
-  updateReminder:  (id, content) => fetch(`/api/reminders/${id}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  }),
-  deleteReminder:  (id) => fetch(`/api/reminders/${id}`, { method: 'DELETE' }),
+  getReminders:    () => fetch('/api/reminders').then(json),
+  createReminder:  (content) => send('/api/reminders', 'POST', { content }).then(json),
+  updateReminder:  (id, content) => sendVoid(`/api/reminders/${id}`, 'PATCH', { content }),
+  deleteReminder:  (id) => sendVoid(`/api/reminders/${id}`, 'DELETE'),
 };
+
+// ── Pending-write flushing ────────────────────────────────────────────────
+
+// Debounced editors register a flush here so a tab close, an app switch, or a
+// phone locking the screen commits the last keystrokes instead of dropping them.
+let journalFlusher = null;
+
+function flushPendingSaves() {
+  // keepalive so the request outlives the page it was fired from.
+  const opts = { keepalive: true };
+  for (const fn of [journalFlusher, flushEditorSave]) {
+    if (!fn) continue;
+    try { fn(opts); } catch { /* keep flushing the rest */ }
+  }
+}
+
+window.addEventListener('pagehide', flushPendingSaves);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushPendingSaves();
+});
+
+let saveToastTimer;
+function saveFailed(message) {
+  let el = document.getElementById('save-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'save-toast';
+    el.className = 'save-toast';
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.classList.add('visible');
+  clearTimeout(saveToastTimer);
+  saveToastTimer = setTimeout(() => el.classList.remove('visible'), 5000);
+}
+
+// send() already told the user; this just keeps fire-and-forget writes from
+// logging an unhandled rejection.
+window.addEventListener('unhandledrejection', (e) => {
+  if (e.reason instanceof Error && /network error|Save failed|too large/.test(e.reason.message)) {
+    e.preventDefault();
+  }
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -298,15 +333,24 @@ async function loadOverview() {
   if (ta) {
     autoResize(ta);
     ta.addEventListener('input', () => autoResize(ta));
-    let journalTimer;
+    let journalTimer = null;
+    let lastSaved = ta.value;
+    const flush = (opts) => {
+      clearTimeout(journalTimer);
+      journalTimer = null;
+      if (ta.value === lastSaved) return;
+      lastSaved = ta.value;
+      api.saveJournal(s.today, ta.value, opts);
+    };
     ta.addEventListener('input', () => {
       clearTimeout(journalTimer);
-      journalTimer = setTimeout(() => api.saveJournal(s.today, ta.value), 800);
+      journalTimer = setTimeout(flush, 800);
     });
-    ta.addEventListener('blur', () => {
-      clearTimeout(journalTimer);
-      api.saveJournal(s.today, ta.value);
-    });
+    ta.addEventListener('blur', () => flush());
+    // Replaces any flusher from a previous render of this tab.
+    journalFlusher = flush;
+  } else {
+    journalFlusher = null;
   }
 
   // Mood row
@@ -1188,12 +1232,19 @@ function buildFolderOptions(selectedId) {
   return opts;
 }
 
-function flushEditorSave() {
-  if (!notesState.editorHandle || !notesState.currentId) return;
+function flushEditorSave(opts) {
+  if (!notesState.currentId) return;
+  if (notesState.titleTimer) {
+    clearTimeout(notesState.titleTimer);
+    notesState.titleTimer = null;
+    const title = document.getElementById('note-title-input')?.value;
+    if (title !== undefined) api.updateNote(notesState.currentId, { title }, opts);
+  }
+  if (!notesState.editorHandle) return;
   clearTimeout(notesState.contentTimer);
   const content = notesState.editorHandle.getMarkdown();
   if (notesState.currentNote) notesState.currentNote.content = content;
-  api.updateNote(notesState.currentId, { content });
+  api.updateNote(notesState.currentId, { content }, opts);
 }
 
 function destroyEditor() {
@@ -1327,6 +1378,7 @@ document.getElementById('note-title-input').addEventListener('input', (e) => {
   const title = e.target.value;
   clearTimeout(notesState.titleTimer);
   notesState.titleTimer = setTimeout(async () => {
+    notesState.titleTimer = null;
     if (!notesState.currentId) return;
     await api.updateNote(notesState.currentId, { title });
     if (notesState.currentNote) notesState.currentNote.title = title.trim() || 'Untitled';

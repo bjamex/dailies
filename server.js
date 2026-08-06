@@ -5,45 +5,91 @@ const path = require('path');
 const DB_FILE    = process.env.DB_FILE    || path.join(__dirname, 'dailies.json');
 const QUOTES_FILE = path.join(__dirname, 'quotes.json');
 
-function load() {
-  try {
-    const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    for (const t of data.tasks) {
-      if (!('group' in t))        t.group = null;
-      if (!('paused' in t))       t.paused = false;
-      if (!('streak_goal' in t))  t.streak_goal = null;
-      if (!('notes' in t))        t.notes = '';
-      if (!('kind' in t))         t.kind = 'check';
-      if (!('target' in t))       t.target = null;
-      if (!('notify_time' in t))  t.notify_time = null;
-    }
-    if (!data.journal)  data.journal = [];
-    if (!data.folders)  data.folders = [];
-    if (!data.notes)    data.notes = [];
-    if (!data.mood)     data.mood = {};
-    if (!data.settings) data.settings = {};
-    if (!('resetHour'    in data.settings)) data.settings.resetHour    = 0;
-    if (!('vacationDays' in data.settings)) data.settings.vacationDays = [];
-    if (!('pin'          in data.settings)) data.settings.pin          = null;
-    if (!('timezone'     in data.settings)) data.settings.timezone     = null;
-    return data;
-  } catch {
-    return { tasks: [], completions: [], reminders: [], journal: [], folders: [], notes: [], mood: {}, settings: { resetHour: 0, vacationDays: [], pin: null, timezone: null }, _seq: { tasks: 0, reminders: 0 } };
-  }
+function emptyDb() {
+  return { tasks: [], completions: [], reminders: [], journal: [], folders: [], notes: [], mood: {}, settings: { resetHour: 0, vacationDays: [], pin: null, timezone: null }, _seq: { tasks: 0, reminders: 0 } };
 }
 
+function load() {
+  let raw;
+  try {
+    raw = fs.readFileSync(DB_FILE, 'utf8');
+  } catch (err) {
+    // A missing file is a fresh install — anything else (permissions, I/O) is
+    // not something we should paper over by handing back an empty database.
+    if (err.code === 'ENOENT') return emptyDb();
+    throw err;
+  }
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    // Never fall back to an empty database here: the next save() would commit
+    // that emptiness over the only copy of the user's data.
+    throw new Error(
+      `${DB_FILE} is not valid JSON — refusing to start so it is not overwritten. ` +
+      `A copy of the last good save may be at ${DB_FILE}.bak`
+    );
+  }
+  if (!Array.isArray(data.tasks))       data.tasks = [];
+  if (!Array.isArray(data.completions)) data.completions = [];
+  if (!Array.isArray(data.reminders))   data.reminders = [];
+  for (const t of data.tasks) {
+    if (!('group' in t))        t.group = null;
+    if (!('paused' in t))       t.paused = false;
+    if (!('streak_goal' in t))  t.streak_goal = null;
+    if (!('notes' in t))        t.notes = '';
+    if (!('kind' in t))         t.kind = 'check';
+    if (!('target' in t))       t.target = null;
+    if (!('notify_time' in t))  t.notify_time = null;
+  }
+  if (!data.journal)  data.journal = [];
+  if (!data.folders)  data.folders = [];
+  if (!data.notes)    data.notes = [];
+  if (!data.mood)     data.mood = {};
+  if (!data.settings) data.settings = {};
+  if (!('resetHour'    in data.settings)) data.settings.resetHour    = 0;
+  if (!('vacationDays' in data.settings)) data.settings.vacationDays = [];
+  if (!('pin'          in data.settings)) data.settings.pin          = null;
+  if (!('timezone'     in data.settings)) data.settings.timezone     = null;
+  return data;
+}
+
+// Write via temp file + rename so a crash or full disk can never leave a
+// half-written dailies.json behind: the rename is atomic, so the file on disk
+// is always either the previous save or the complete new one.
 function save(data) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  const json = JSON.stringify(data, null, 2);
+  const tmp = `${DB_FILE}.tmp`;
+  const fd = fs.openSync(tmp, 'w');
+  try {
+    fs.writeFileSync(fd, json);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  try { fs.copyFileSync(DB_FILE, `${DB_FILE}.bak`); } catch { /* no previous save yet */ }
+  fs.renameSync(tmp, DB_FILE);
 }
 
 function nextId(data, table) {
-  if (!data._seq) data._seq = { tasks: 0, reminders: 0 };
-  data._seq[table] = (data._seq[table] || 0) + 1;
+  if (!data._seq) data._seq = {};
+  // Derive from the rows actually present as well as the counter: a backup
+  // restored without a _seq block would otherwise restart at 1 and hand the
+  // new row an existing row's id (and with it, its completion history).
+  const rows = Array.isArray(data[table]) ? data[table] : [];
+  const maxExisting = rows.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0);
+  data._seq[table] = Math.max(data._seq[table] || 0, maxExisting) + 1;
   return data._seq[table];
 }
 
 function now() {
   return new Date().toISOString().replace('T', ' ').substring(0, 19);
+}
+
+// YYYY-MM-DD for a Date read in the system zone. Only for dates we construct
+// ourselves at local noon, where the zone cannot shift the calendar day.
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function getDailyPeriod(d = new Date(), resetHour = 0, timezone = null) {
@@ -128,16 +174,32 @@ function getStreakForTask(taskId, completions, resetHour = 0, vacationDays = [],
   return streak;
 }
 
-function getBestStreak(taskId, completions) {
+function getBestStreak(taskId, completions, vacationDays = []) {
   const periods = [...new Set(completions.filter(c => c.task_id === taskId).map(c => c.period))].sort();
   if (!periods.length) return 0;
+  const vacSet = new Set(vacationDays);
+  // Vacation days count toward the streak in getStreakForTask, so they have to
+  // bridge (and lengthen) runs here too — otherwise a user with freeze days
+  // sees a current streak longer than their best.
+  const bridges = (from, to) => {
+    const d = new Date(from + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+    while (dateKey(d) !== to) {
+      if (!vacSet.has(dateKey(d))) return false;
+      d.setDate(d.getDate() + 1);
+    }
+    return true;
+  };
+  const dayGap = (from, to) => Math.round(
+    (new Date(to + 'T12:00:00') - new Date(from + 'T12:00:00')) / 86400000
+  );
   let best = 1, current = 1;
   for (let i = 1; i < periods.length; i++) {
-    const diff = Math.round(
-      (new Date(periods[i] + 'T12:00:00') - new Date(periods[i - 1] + 'T12:00:00')) / 86400000
-    );
-    if (diff === 1) { current++; best = Math.max(best, current); }
+    const gap = dayGap(periods[i - 1], periods[i]);
+    if (gap === 1) current++;
+    else if (gap > 1 && bridges(periods[i - 1], periods[i])) current += gap;
     else current = 1;
+    best = Math.max(best, current);
   }
   return best;
 }
@@ -160,7 +222,8 @@ const VALID_TYPES  = new Set(['daily', 'weekly', 'monthly']);
 const VALID_GROUPS = new Set(['morning', 'afternoon', null]);
 
 const app = express();
-app.use(express.json());
+// Notes can hold a long document; the 100kb default would reject the save.
+app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, 'static')));
 
 // ── Tasks ──────────────────────────────────────────────────────────────────
@@ -337,7 +400,10 @@ app.get('/api/stats', (req, res) => {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const period = getDailyPeriod(d, 0, tz);
-    const dayIdx = d.getDay();
+    // Take the weekday from the period itself, not from d: the period is
+    // resolved in the configured timezone, so d.getDay() (server-local) can
+    // name a different day whenever the container zone differs from the user's.
+    const dayIdx = new Date(period + 'T12:00:00Z').getUTCDay();
     for (const task of dailyTasks) {
       if (new Date(task.created_at.replace(' ', 'T')) > d) continue;
       dow[dayIdx].total++;
@@ -352,7 +418,7 @@ app.get('/api/stats', (req, res) => {
     paused: t.paused,
     streak_goal: t.streak_goal,
     currentStreak: t.paused ? null : getStreakForTask(t.id, data.completions, rh, data.settings.vacationDays, tz),
-    bestStreak: getBestStreak(t.id, data.completions),
+    bestStreak: getBestStreak(t.id, data.completions, data.settings.vacationDays),
     rate: getCompletionRate(t.id, data.completions, t.created_at, days, tz),
   })).sort((a, b) => (b.currentStreak ?? 0) - (a.currentStreak ?? 0));
 
@@ -764,5 +830,21 @@ app.delete('/api/folders/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Dailies running on http://localhost:${PORT}`));
+module.exports = {
+  app, load, save, nextId, dateKey,
+  getDailyPeriod, getWeeklyPeriod, getMonthlyPeriod,
+  getStreakForTask, getBestStreak, getCompletionRate,
+};
+
+if (require.main === module) {
+  // Fail loudly at boot rather than on the first request, so a corrupt file is
+  // noticed before anything has a chance to write over it.
+  try {
+    load();
+  } catch (err) {
+    console.error(`Dailies could not start: ${err.message}`);
+    process.exit(1);
+  }
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => console.log(`Dailies running on http://localhost:${PORT}`));
+}

@@ -4,6 +4,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test \"test/**/*.test.js\"",
     "build:editor": "esbuild editor-src/index.js --bundle --format=iife --global-name=NoteEditor --outfile=static/vendor/editor.bundle.js --minify --legal-comments=none"
   },
   "dependencies": {

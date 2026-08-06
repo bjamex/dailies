@@ -1963,3 +1963,33 @@ body.light .vacation-date-input { color-scheme: light; }
   .note-back-btn { display: inline-block; }
   .note-row-actions { display: flex; }
 }
+
+/* ── Save-failure toast ─────────────────────────────────────────────────── */
+
+.save-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translate(-50%, 1rem);
+  z-index: 200;
+  max-width: min(30rem, calc(100vw - 2rem));
+  padding: .6rem 1rem;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-size: .9rem;
+  line-height: 1.35;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+}
+
+.save-toast.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .save-toast { transition: none; }
+}
